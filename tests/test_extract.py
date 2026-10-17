@@ -1,4 +1,4 @@
-from leadscraper.extract import contact_links, extract_emails, extract_name, extract_phones, same_site_emails
+from skrapkin.extract import contact_links, extract_emails, extract_name, extract_phones, same_site_emails
 
 HTML = """
 <html><head><title>Home | Acme Widgets</title></head><body>

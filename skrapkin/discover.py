@@ -71,7 +71,7 @@ def discover(area, category, country=None):
         for url in OVERPASS_URLS:
             try:
                 resp = requests.post(url, data={"data": query}, timeout=200,
-                                     headers={"User-Agent": "LeadScraper/0.1"})
+                                     headers={"User-Agent": "SKrapkin/0.1"})
                 resp.raise_for_status()
                 return parse_elements(resp.json().get("elements", []), category)
             except (requests.RequestException, ValueError) as e:

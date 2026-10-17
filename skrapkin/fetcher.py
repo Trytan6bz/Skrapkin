@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 
 import requests
 
-USER_AGENT = "LeadScraper/0.1 (business contact research; respects robots.txt)"
+USER_AGENT = "SKrapkin/0.1 (business contact research; respects robots.txt)"
 
 
 class Fetcher:

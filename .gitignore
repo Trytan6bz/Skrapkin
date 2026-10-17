@@ -1,14 +1,11 @@
 # environments and caches
 .venv/
-.venv-win/
 __pycache__/
 .pytest_cache/
-
-# build output
-build/
-dist/
-*.spec
 
 # scraped contact data and local config: never commit
 *.csv
 .env
+
+# local data and secrets
+data/

@@ -1,8 +1,14 @@
 """Usage:
-    python -m leadscraper.cli discover --area Houston --country US --category toys -o seeds.csv
-    python -m leadscraper.cli scrape seeds.csv -o leads.csv --country US
-    python -m leadscraper.cli audit leads.csv -n 50 -o audit.csv      # then fill in is_legit (y/n)
-    python -m leadscraper.cli audit audit.csv --score                 # prints precision
+    python -m skrapkin.cli discover --area Houston --country US --category toys -o seeds.csv
+    python -m skrapkin.cli scrape seeds.csv -o leads.csv --country US
+    python -m skrapkin.cli audit leads.csv -n 50 -o audit.csv      # then fill in is_legit (y/n)
+    python -m skrapkin.cli audit audit.csv --score                 # prints precision
+
+    # with MongoDB (see docker-compose.yml) and a Hunter key in HUNTER_API_KEY:
+    python -m skrapkin.cli scrape seeds.csv --save-db --state Texas
+    python -m skrapkin.cli verify --preview                        # free: shows what would be checked
+    python -m skrapkin.cli verify --yes                            # spends Hunter credits
+    python -m skrapkin.cli export verified -o verified.csv
 """
 
 import argparse
@@ -11,6 +17,7 @@ import random
 import sys
 from urllib.parse import urlparse
 
+from . import config
 from .discover import CATEGORIES, discover
 from .extract import (contact_links, extract_emails, extract_name, extract_phones,
                       filter_free_mail, same_site_emails)
@@ -89,7 +96,14 @@ def clean_phones(phones, region):
     return {n for p in phones if (n := normalize_phone(p, region))}
 
 
-def cmd_scrape(args, log=print, progress=lambda done, total: None, should_stop=lambda: False):
+def cmd_scrape(args, log=print, progress=lambda done, total: None, should_stop=lambda: False,
+               on_lead=None):
+    db = on_lead_db = None
+    if getattr(args, "save_db", False):
+        from .jobs import connect_db  # lazy: jobs imports this module
+        db = connect_db(config.Config.load())
+        search = {"state": getattr(args, "state", "") or "", "category": ""}
+        on_lead_db = lambda lead: db.upsert_lead(lead, search)  # noqa: E731
     fetcher = Fetcher(delay=args.delay)
     all_seeds = read_seeds(args.seeds)
     chains = set() if args.keep_chains else chain_domains(all_seeds)
@@ -143,6 +157,12 @@ def cmd_scrape(args, log=print, progress=lambda done, total: None, should_stop=l
             "source_pages": "; ".join(result["pages"]) if result else "openstreetmap",
         })
         log(f"[{level}] {rows[-1]['business'] or site}: {rows[-1]['emails'] or rows[-1]['phones']}")
+        if on_lead or on_lead_db:
+            sources = {e: "site" if result and e in result["emails"] else "osm" for e in emails}
+            lead = {**rows[-1], "email_sources": sources}
+            for callback in (on_lead_db, on_lead):
+                if callback:
+                    callback(lead)
 
     with open(args.output, "w", newline="", encoding="utf-8-sig") as f:
         w = csv.DictWriter(f, fieldnames=LEAD_FIELDS)
@@ -179,6 +199,68 @@ def cmd_audit(args):
           f"email/phone? would buy in bulk?) and set is_legit to y or n, then run: audit {args.output} --score")
 
 
+def cmd_verify(args, log=print):
+    """Filter locally, then spend Hunter lookups only on emails likely to be real."""
+    from .hunter import InvalidKey
+    from .jobs import connect_db, run_verification
+    from .verifier import build_plan
+
+    cfg = config.Config.load()
+    if args.min_likelihood is not None:
+        cfg.min_likelihood = args.min_likelihood
+    if args.max_lookups is not None:
+        cfg.max_credits_per_run = args.max_lookups
+    key = config.get_hunter_key()
+    if not key and not args.preview:
+        sys.exit("No Hunter API key. Set the HUNTER_API_KEY environment variable (or save one in the app).")
+    db = connect_db(cfg)
+    plan = build_plan(db, cfg)
+    n = min(len(plan.to_check), cfg.max_credits_per_run)
+    log(plan.summary())
+    if args.preview:
+        for cand in plan.to_check[:n]:
+            log(f"  would check  {cand.address}  (score {cand.likelihood})")
+        for cand, why in plan.filtered:
+            log(f"  skip         {cand.address}  ({why})")
+        return n
+    if n == 0:
+        log("Nothing to verify.")
+        return 0
+    if not args.yes and input(f"Use up to {n} Hunter lookups? [y/N] ").strip().lower() != "y":
+        log("Cancelled.")
+        return 0
+    try:
+        _, _, stats = run_verification(db, cfg, key, log, lambda d, t: None, lambda: False, plan=plan)
+    except InvalidKey:
+        sys.exit("Hunter rejected the API key.")
+    log(f"checked {stats['checked']}: {stats['valid']} valid, {stats['invalid']} invalid, "
+        f"{stats['accept_all']} accept-all, {stats['unknown']} unknown; skipped {stats['skipped_free']} for free; "
+        f"{stats['left_unchecked']} left for next run" + (f"; stopped: {stats['stopped']}" if stats["stopped"] else ""))
+    return stats["checked"]
+
+
+def cmd_export(args, log=print):
+    from .jobs import connect_db
+
+    db = connect_db(config.Config.load())
+    if args.what == "verified":
+        header = ["email", "business", "state", "city", "website", "phones", "score", "verified_at"]
+        rows = [[d["email"], d.get("business", ""), d.get("state", ""), d.get("city", ""), d.get("website", ""),
+                 "; ".join(d.get("phones", [])), d.get("score", ""), d["verified_at"].isoformat()]
+                for d in db.list_verified(limit=0)]
+    else:
+        header = ["business", "state", "city", "website", "emails", "phones", "confidence"]
+        rows = [[d.get("business", ""), d.get("state", ""), d.get("city", ""), d.get("website", ""),
+                 "; ".join(f"{e['address']} ({e['status']})" for e in d.get("emails", [])),
+                 "; ".join(d.get("phones", [])), d.get("confidence", "")] for d in db.list_leads(limit=0)]
+    with open(args.output, "w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.writer(f)
+        writer.writerow(header)
+        writer.writerows(rows)
+    log(f"wrote {len(rows)} {args.what} rows to {args.output}")
+    return len(rows)
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description="Collect public business contact info for B2B marketing.")
     sub = p.add_subparsers(dest="command", required=True)
@@ -204,7 +286,21 @@ def main(argv=None):
                    help="drop leads below this level (high=own-domain email, medium=other email, low=phone only)")
     s.add_argument("--keep-chains", action="store_true",
                    help="keep chains/franchises (OSM brand tag, or a domain seen 3+ times in the seeds)")
+    s.add_argument("--save-db", action="store_true", help="also save leads to MongoDB (SKRAPKIN_MONGO_URI)")
+    s.add_argument("--state", default="", help="label for saved leads, e.g. Texas (used with --save-db)")
     s.set_defaults(func=cmd_scrape)
+
+    v = sub.add_parser("verify", help="verify stored emails with Hunter.io (filters unlikely ones first)")
+    v.add_argument("--preview", action="store_true", help="show what would be checked; spends nothing")
+    v.add_argument("--yes", action="store_true", help="don't ask for confirmation")
+    v.add_argument("--min-likelihood", type=int, help="only check emails scoring at least this (0-100)")
+    v.add_argument("--max-lookups", type=int, help="cap on Hunter lookups for this run")
+    v.set_defaults(func=cmd_verify)
+
+    x = sub.add_parser("export", help="write stored leads or verified emails to a CSV")
+    x.add_argument("what", choices=["verified", "leads"])
+    x.add_argument("-o", "--output", default="export.csv")
+    x.set_defaults(func=cmd_export)
 
     a = sub.add_parser("audit", help="sample leads for manual review, or score a reviewed sample")
     a.add_argument("file")

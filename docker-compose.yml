@@ -1,0 +1,61 @@
+# SKrapkin: MongoDB for the database, plus optional containers for the CLI and the desktop window.
+#
+#   cp .env.example .env            # then set MONGO_PASSWORD
+#   docker compose up -d            # starts MongoDB only (bound to localhost)
+#   docker compose run --rm skrapkin discover --area Ohio --country US --category toys --limit 50 -o seeds.csv
+#
+# See the README for the full walkthrough.
+name: skrapkin
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-skrapkin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:?Set MONGO_PASSWORD in .env (copy .env.example)}
+    ports:
+      - "127.0.0.1:${MONGO_PORT:-27017}:27017"   # localhost only: not reachable from your network
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+  # Headless command line. Reads and writes files in ./data.
+  skrapkin:
+    profiles: ["cli"]
+    build:
+      context: .
+      target: cli
+    environment:
+      SKRAPKIN_MONGO_URI: mongodb://${MONGO_USER:-skrapkin}:${MONGO_PASSWORD}@mongo:27017/?authSource=admin
+      HUNTER_API_KEY: ${HUNTER_API_KEY:-}
+    volumes:
+      - ./data:/data
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  # Desktop window through X11 (Linux). On Windows/macOS run the app with Python instead (see README).
+  gui:
+    profiles: ["gui"]
+    build:
+      context: .
+      target: gui
+    environment:
+      DISPLAY: ${DISPLAY:-:0}
+      SKRAPKIN_MONGO_URI: mongodb://${MONGO_USER:-skrapkin}:${MONGO_PASSWORD}@mongo:27017/?authSource=admin
+      HUNTER_API_KEY: ${HUNTER_API_KEY:-}
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - ./data:/data
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+volumes:
+  mongo-data:

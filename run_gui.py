@@ -1,6 +1,6 @@
-"""PyInstaller entry point for the desktop app."""
+"""Launches the SKrapkin desktop app:  python run_gui.py"""
 
-from leadscraper.gui import main
+from skrapkin.gui import main
 
 if __name__ == "__main__":
     main()

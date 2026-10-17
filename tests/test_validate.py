@@ -1,4 +1,4 @@
-from leadscraper.validate import (chain_domains, is_aggregator, is_junk_email, normalize_phone,
+from skrapkin.validate import (chain_domains, is_aggregator, is_junk_email, normalize_phone,
                                   registered_domain)
 
 
@@ -26,7 +26,7 @@ def test_aggregator_and_registered_domain():
 
 
 def test_non_buyer_names():
-    from leadscraper.validate import is_non_buyer
+    from skrapkin.validate import is_non_buyer
     assert is_non_buyer("Plumbers Local Union No. 68 Group Protection Plan")
     assert is_non_buyer("Electrical Training Center")
     assert not is_non_buyer("Houston Hardwoods")
