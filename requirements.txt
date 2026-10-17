@@ -1,0 +1,8 @@
+requests>=2.32
+beautifulsoup4>=4.12
+pytest>=8.0
+dnspython>=2.6
+phonenumbers>=8.13
+pymongo>=4.8
+keyring>=25.0
+mongomock>=4.1
