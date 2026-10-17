@@ -355,7 +355,13 @@ def create_app(cfg=None, connect=True):
             limit = int_in(data.get("max_businesses", 100), 1, 1000, "Max businesses")
         except ValueError as e:
             return fail(str(e))
+        try:
+            workers = int_in(data.get("workers", 8), 1, 32, "Sites checked at once")
+        except ValueError as e:
+            return fail(str(e))
         settings = jobs.Settings(category=category, country=country, region=region, place=place,
+                                 workers=workers, skip_checked=bool(data.get("skip_checked", True)),
+                                 thorough=bool(data.get("thorough", False)),
                                  output_dir=jobs.default_output_dir(),
                                  exclude_personal=bool(data.get("exclude_personal")),
                                  keep_chains=bool(data.get("keep_chains")),
@@ -423,6 +429,20 @@ def create_app(cfg=None, connect=True):
         return jsonify(leads=[lead_out(l) for l in found], totals={"leads": stats["leads"], "emails": stats["emails"],
                                                                     "verified": stats["verified"],
                                                                     "by_status": stats["by_status"]})
+
+    @app.get("/api/history")
+    def history():
+        db, error = need_db()
+        if error:
+            return error
+        return jsonify(checked=db.checked_count())
+
+    @app.post("/api/history/clear")
+    def history_clear():
+        db, error = need_db()
+        if error:
+            return error
+        return jsonify(cleared=db.clear_checked())
 
     @app.post("/api/leads/delete")
     def leads_delete():

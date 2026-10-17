@@ -267,6 +267,9 @@
     $('find-personal').checked = p.personal ?? true;
     $('find-chains').checked = p.chains ?? false;
     $('find-save').checked = p.save ?? true;
+    $('find-skip').checked = p.skip ?? true;
+    $('find-workers').value = p.workers || 8;
+    $('find-thorough').checked = p.thorough ?? false;
     $('find-verify').checked = p.verify ?? false;
     findTable = Table($('find-table'), [
       { key: 'business', title: 'Business' },
@@ -298,11 +301,14 @@
       max_businesses: Number($('find-max').value), min_confidence: $('find-confidence').value,
       exclude_personal: !$('find-personal').checked, keep_chains: $('find-chains').checked,
       save_db: $('find-save').checked, verify_after: $('find-verify').checked,
+      skip_checked: $('find-skip').checked, workers: Number($('find-workers').value),
+      thorough: $('find-thorough').checked,
     };
     prefs.set('find', { category: body.category, country: body.country, region: body.region, place: body.place,
       max: body.max_businesses,
       confidence: body.min_confidence, personal: !body.exclude_personal, chains: body.keep_chains,
-      save: body.save_db, verify: body.verify_after });
+      save: body.save_db, verify: body.verify_after, skip: body.skip_checked, workers: body.workers,
+      thorough: body.thorough });
     try {
       const { task } = await api('/api/find', { method: 'POST', body });
       attachFind(task);
@@ -316,6 +322,7 @@
     $('find-download').hidden = true;
     $('find-counter').textContent = '';
     setBusy('find');
+    const skippedHistory = $('find-skip').checked && $('find-save').checked;
     const final = await follow(taskId, (s) => {
       showProgress($('find-progress'), s);
       if (s.logs.length && s.state === 'running') {
@@ -343,7 +350,9 @@
       const word = final.state === 'stopped' ? 'Stopped' : 'Done';
       setStatus($('find-status'), r.count
         ? `${word}: ${r.count} leads${r.saved_to_database ? ' saved to the database' : ''}.`
-        : `${word}: no leads found. Try a different state or category.`, r.count ? 'ok' : '');
+        : (skippedHistory
+          ? `${word}: no new businesses. Everything findable here was already checked. Try another region, city or category.`
+          : `${word}: no leads found. Try a different region or category.`), r.count ? 'ok' : '');
       if (r.file) { dl.href = `/api/download/${encodeURIComponent(r.file)}`; dl.hidden = false; }
       if (r.verification) toast(`Verification: ${r.verification.valid} valid, ${r.verification.invalid} invalid.`, 'ok');
     }
@@ -591,6 +600,14 @@
   // ---- settings ----------------------------------------------------------------------------------
   function initSettings() {
     $('db-show').addEventListener('change', (e) => { $('db-uri').type = e.target.checked ? 'text' : 'password'; });
+    $('history-clear').addEventListener('click', async () => {
+      if (!window.confirm('Forget every business SKrapkin has checked? Repeat searches will check the same businesses again. Saved leads are not touched.')) return;
+      try {
+        const r = await api('/api/history/clear', { method: 'POST' });
+        toast(`Forgot ${r.cleared} businesses.`, 'ok');
+        loadHistory();
+      } catch (e) { toast(e.message, 'error'); }
+    });
     $('db-save').addEventListener('click', async () => {
       const el = $('db-result');
       setStatus(el, 'Connecting…');
@@ -603,8 +620,17 @@
     });
   }
 
+  async function loadHistory() {
+    const el = $('history-count');
+    try {
+      const { checked } = await api('/api/history');
+      setStatus(el, checked ? `${checked} businesses checked so far.` : 'Nothing checked yet.');
+    } catch (e) { setStatus(el, e.message); }
+  }
+
   function fillSettings() {
     if (!STATUS) return;
+    loadHistory();
     $('db-name').value = STATUS.config.db_name;
     $('db-env-note').hidden = !STATUS.db.uri_from_environment;
     $('db-uri').disabled = STATUS.db.uri_from_environment;

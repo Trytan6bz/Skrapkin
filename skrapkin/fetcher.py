@@ -1,27 +1,45 @@
-"""Polite HTTP fetching: honours robots.txt and rate-limits per domain."""
+"""Polite HTTP fetching: honours robots.txt and rate-limits per domain. Safe to share between threads."""
 
+import threading
 import time
 from urllib import robotparser
 from urllib.parse import urlparse
 
 import requests
 
-USER_AGENT = "SKrapkin/0.1 (business contact research; respects robots.txt)"
+from . import __version__
+
+USER_AGENT = f"SKrapkin/{__version__} (business contact research; respects robots.txt)"
 
 
 class Fetcher:
+    """One Fetcher serves many worker threads. Each thread gets its own HTTP session, and the per-domain
+    delay is enforced under a lock, so no single site is hit more often than `delay` allows no matter how
+    many sites are being fetched at once."""
+
     def __init__(self, delay=2.0, timeout=15):
         self.delay = delay
         self.timeout = timeout
-        self.session = requests.Session()
-        self.session.headers["User-Agent"] = USER_AGENT
+        self._local = threading.local()
+        self._lock = threading.Lock()
         self._robots = {}
         self._last_hit = {}
+
+    @property
+    def session(self):
+        session = getattr(self._local, "session", None)
+        if session is None:
+            session = requests.Session()
+            session.headers["User-Agent"] = USER_AGENT
+            self._local.session = session
+        return session
 
     def _robots_for(self, url):
         parts = urlparse(url)
         origin = f"{parts.scheme}://{parts.netloc}"
-        if origin not in self._robots:
+        with self._lock:
+            rp = self._robots.get(origin)
+        if rp is None:
             rp = robotparser.RobotFileParser()
             try:
                 resp = self.session.get(f"{origin}/robots.txt", timeout=self.timeout)
@@ -33,8 +51,9 @@ class Fetcher:
                     rp.parse(resp.text.splitlines())
             except requests.RequestException:
                 rp.disallow_all = True
-            self._robots[origin] = rp
-        return self._robots[origin]
+            with self._lock:
+                rp = self._robots.setdefault(origin, rp)
+        return rp
 
     def allowed(self, url):
         return self._robots_for(url).can_fetch(USER_AGENT, url)
@@ -44,10 +63,13 @@ class Fetcher:
         if not self.allowed(url):
             return None
         domain = urlparse(url).netloc
-        wait = self.delay - (time.monotonic() - self._last_hit.get(domain, 0))
-        if wait > 0:
+        with self._lock:  # reserve this domain's next slot, so concurrent callers queue up behind each other
+            now = time.monotonic()
+            last = self._last_hit.get(domain)
+            wait = 0.0 if last is None else max(0.0, self.delay - (now - last))
+            self._last_hit[domain] = now + wait
+        if wait:
             time.sleep(wait)
-        self._last_hit[domain] = time.monotonic()
         try:
             resp = self.session.get(url, timeout=self.timeout)
         except requests.RequestException:

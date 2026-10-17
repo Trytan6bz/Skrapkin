@@ -44,6 +44,7 @@ docker compose up -d --build
   - [Connect Hunter.io](#connect-hunterio)
 - [Using the web interface](#using-the-web-interface)
 - [Sharing it with a team](#sharing-it-with-a-team)
+- [Collecting a lot of leads](#collecting-a-lot-of-leads)
 - [Command line reference](#command-line-reference)
 - [How it keeps verification costs down](#how-it-keeps-verification-costs-down)
 - [Data model](#data-model)
@@ -61,9 +62,9 @@ docker compose up -d --build
 | Stage | What happens |
 |---|---|
 | **Discover** | Finds businesses by category in **any of 249 countries**, optionally narrowed to a region (state, province, nation, prefecture...) and a city or area, using [OpenStreetMap](https://www.openstreetmap.org) data through the Overpass API. Built-in categories: building materials and contractors, clothing retailers, toy and gift shops. |
-| **Scrape** | Visits each business's own website (homepage plus up to three contact, about, team or support pages, recognised in about 15 languages) and collects public emails and phone numbers. It reads `mailto:` links, visible text, and `name [at] domain [dot] com` style obfuscation. |
+| **Scrape** | Visits each business's own website (the homepage, then contact, about, team or support pages recognised in about 15 languages) and collects public emails and phone numbers. It reads `mailto:` links, visible text, and `name [at] domain [dot] com` style obfuscation. Several sites are checked at once, and by default a site's remaining pages are skipped as soon as an email on its own domain is found. |
 | **Clean** | Drops chains and franchises, non-buyers (unions, schools, associations and similar, in several languages), social and listing pages, placeholder and system addresses, emails on dead domains, and invalid phone numbers. Phone numbers are read in the local format of the country you searched and normalised to E.164, so two formats of the same number count once. |
-| **Store** | Saves every lead to **MongoDB** as it is found, merging repeat searches instead of duplicating them. |
+| **Store** | Saves every lead to **MongoDB** as it is found, merging repeat searches instead of duplicating them. It also remembers every business it has checked (chains and dead sites included), so the next search can move on to **new** ones. |
 | **Filter** | Scores each email locally for how likely it is to be a real, reachable business mailbox. Unlikely ones are never sent to a paid service. |
 | **Verify** | Checks the survivors with the **[Hunter.io](https://hunter.io) Email Verifier**. Only emails Hunter reports as `valid` go into the separate **verified results** collection. |
 | **Export** | Exports leads or verified emails to CSV (opens correctly in Excel, and safe against formula injection). |
@@ -104,8 +105,9 @@ flowchart LR
 | `medium` | A deliverable email on another domain (for example Gmail). |
 | `low` | A phone number only. |
 
-**Politeness:** one request per domain every 2 seconds by default, `robots.txt` honoured, and a descriptive
-`User-Agent`.
+**Politeness:** `robots.txt` honoured, a descriptive `User-Agent`, and one request per website every 2 seconds. By
+default 8 websites are checked at the same time, but each site still sees only its own slow, one-page-at-a-time
+trickle, so the load on any single site is the same as before.
 
 ---
 
@@ -257,11 +259,11 @@ owner-only permissions (`~/.skrapkin/secrets.json`, or inside the `skrapkin-conf
 
 | Tab | What you do there |
 |---|---|
-| **Find leads** | Pick a business type, a **country**, an optional **region**, and an optional **city or area**. Cap how many businesses to check and choose what to keep. Results stream into a table as they are found. Optionally save to the database and verify automatically afterwards. |
+| **Find leads** | Pick a business type, a **country**, an optional **region**, and an optional **city or area**. Cap how many businesses to check and choose what to keep. Results stream into a table as they are found. Optionally save to the database and verify automatically afterwards. | Options: save to the database, **only new businesses** (skip ones already checked), how many **sites to check at once**, **thorough** mode (read every contact page), and verify automatically afterwards.
 | **Leads** | Browse every saved lead. Search as you type, filter by type, country, region, or email status, click a heading to sort, tick rows to copy their emails or delete them, and export to CSV. |
 | **Verify emails** | Save your Hunter key, set your cost controls, then **Preview (free)** to see exactly which emails would be sent and why the rest are skipped. **Verify now** shows how many credits it will use and asks you to confirm. |
 | **Verified results** | The separate list of emails Hunter confirmed as valid. Search, filter, copy all addresses, remove entries, or export to CSV. |
-| **Settings** | MongoDB connection and database name. |
+| **Settings** | MongoDB connection and database name, plus the **search history** (how many businesses have been checked, and a button to forget them). |
 
 **Choosing where to search.** The region list comes from ISO 3166-2 (US states, Canadian provinces, UK nations,
 German Länder, Nigerian states, Indian states, Japanese prefectures, and so on, for every country that defines
@@ -299,14 +301,55 @@ Alternatively, point each person's own copy at one shared MongoDB Atlas database
 
 ---
 
+## Collecting a lot of leads
+
+One search checks at most **1,000** businesses, and a business with a website needs several downloads, so a big
+job takes time. What to expect, from a real test of 40 clothing retailers in Bavaria on a slow connection
+(about 1 Mbit/s; yours will differ):
+
+| Setting | Time for 40 businesses | Leads | With an email |
+|---|---|---|---|
+| One site at a time, every contact page | 380 s | 25 | 18 |
+| 8 sites at once, every contact page | about 200-255 s | 24 | 16 |
+| 8 sites at once, stop at the first email (the default) | **136 s** | 24 | 17 |
+
+- **Roughly 60% of the businesses checked become leads**, and about 45% have an email. A third or so of any area
+  are chains, which are skipped without being downloaded. Reaching 1,000 *leads* means checking about 1,600
+  businesses, which takes more than one search.
+- **Speed is limited by bandwidth more than by the program.** On a slow connection, extra sites at once share the
+  same thin pipe, which is why 8 workers gave 2.8x rather than 8x here. On a faster connection the gain is larger.
+  If searches feel slow, a faster connection, or running SKrapkin on a server, will help most.
+
+**Getting past 1,000: search again.** Repeating the same search used to return the same businesses every time.
+With **Only new businesses** ticked (the default when saving to the database), SKrapkin remembers every business
+it has checked, including chains, non-buyers and sites with no contact details, and each new search skips them and
+continues with the next ones:
+
+1. Search *Bavaria, clothing, up to 1,000 businesses*.
+2. When it finishes, run the **same search again**. It reports how many already-checked businesses it skipped and
+   works through new ones.
+3. Repeat until it says there are no new businesses, then try another region, city or category.
+
+How long it remembers: businesses that produced a lead, or are chains or non-buyers, are skipped for 180 days;
+businesses that failed (site down, no contact found) or fell below your confidence setting are retried after 30
+days. **Settings > Search history** shows the count and lets you forget it all. Saved leads are never touched by this.
+
+Practical limits: a single area can be paged about 2,500 businesses deep before the free OpenStreetMap server
+refuses to return more in one request, so split big areas by city. Only one search runs at a time, so verification
+waits until a long search finishes (or tick *verify when finished*). Closing the browser tab does not stop a
+search, and leads are saved to the database as they are found. The CSV file is written when the search finishes
+or you press **Stop**.
+
+---
+
 ## Command line reference
 
 Run as `python -m skrapkin.cli <command>` (or `docker compose run --rm skrapkin <command>`).
 
 | Command | Purpose | Key options |
 |---|---|---|
-| `discover` | Find businesses and write a seeds CSV (which records the country and region). | `--country` (required: ISO code like `NG` or a name), `--region` (name or ISO 3166-2 code, e.g. `Lagos` or `NG-LA`), `--place` (city or area), `--category building\|clothing\|toys`, `--limit N`, `-o FILE` |
-| `scrape SEEDS` | Collect contacts from the seeds' websites and write a leads CSV. | `--save-db`, `--min-confidence low\|medium\|high`, `--exclude-personal`, `--keep-chains`, `--any-domain`, `--delay S`, `--max-pages N`, `--country` (phone format fallback), `--region` (label fallback) |
+| `discover` | Find businesses and write a seeds CSV (which records the country and region). | `--country` (required: ISO code like `NG` or a name), `--region` (name or ISO 3166-2 code, e.g. `Lagos` or `NG-LA`), `--place` (city or area), `--category building\|clothing\|toys`, `--limit N`, `--skip-checked` (skip businesses already checked on earlier runs; needs the database), `-o FILE` |
+| `scrape SEEDS` | Collect contacts from the seeds' websites and write a leads CSV. | `--save-db` (also records the search history), `--workers N` (sites at once, default 8, max 32), `--thorough` (read every contact page), `--min-confidence low\|medium\|high`, `--exclude-personal`, `--keep-chains`, `--any-domain`, `--delay S`, `--max-pages N`, `--country` (phone format fallback), `--region` (label fallback) |
 | `verify` | Filter stored emails locally, then verify the survivors with Hunter. | `--preview` (free), `--yes`, `--min-likelihood 0-100`, `--max-lookups N` |
 | `export {leads,verified}` | Write stored leads or verified emails to CSV. | `-o FILE` |
 | `audit FILE` | Sample leads for manual review, then score the reviewed sample to measure real precision. | `-n SIZE`, `--score` |
@@ -370,6 +413,7 @@ MongoDB, database `skrapkin` by default.
 | Collection | Contents |
 |---|---|
 | `leads` | One document per business: `business`, `website`, `category`, `country` (ISO code), `region`, `city`, `phones`, `confidence`, `source_pages`, timestamps, and an `emails` list of `{address, source, status, likelihood, note}`. |
+| `checked_sites` | The search history: every business that has been checked, with the outcome (`lead`, `chain`, `non_buyer`, `no_contact`, `low_confidence`) and when. Used by **Only new businesses**. |
 | `email_checks` | Every Hunter result, keyed by address, so nothing is paid for twice. |
 | `verified_emails` | **Only addresses Hunter reported as `valid`**, with the business, country, region, phones, score, and verification time. This is the list to use for outreach. |
 
@@ -399,6 +443,7 @@ over stored values and are never copied into the keychain or config file.
 | Hunter API key | `HUNTER_API_KEY` | none |
 | Config folder | `SKRAPKIN_HOME` | `~/.skrapkin` |
 | CSV output folder | `SKRAPKIN_OUTPUT_DIR` | `~/Documents/SKrapkin` |
+| Sites checked at once | `SKRAPKIN_WORKERS` (or `--workers`) | `8` |
 | Web interface address | `SKRAPKIN_WEB_HOST`, `SKRAPKIN_WEB_PORT` | `127.0.0.1`, `8080` |
 | Web interface password | `SKRAPKIN_WEB_PASSWORD`, `SKRAPKIN_WEB_USER` | none, `skrapkin` |
 | Extra allowed hostnames | `SKRAPKIN_ALLOWED_HOSTS` (comma-separated) | none |
@@ -417,6 +462,9 @@ Docker Compose reads `MONGO_USER`, `MONGO_PASSWORD`, `MONGO_PORT`, `WEB_PORT`, `
   America and thinner in many other regions. A search in a thinly mapped area can return only a handful of
   businesses (a test search for building businesses in Lagos, Nigeria found one with contact details). Few listings
   include an email, so most contacts come from scraping websites.
+- **Quick mode reads fewer pages.** By default a site's remaining pages are skipped once an email on its own domain
+  is found, which saves time and Hunter credits but finds fewer extra addresses per business. Tick *Thorough*
+  (or use `--thorough`) to read every contact page.
 - **Searching a whole country returns a sample.** The server returns matches in no particular order and the app
   caps how many it asks for. Pick a region or city for a fuller picture.
 - **Regions are first-level ISO 3166-2 divisions.** They are listed by their ISO names (for example

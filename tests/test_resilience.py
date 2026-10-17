@@ -67,9 +67,18 @@ def test_partial_results_are_kept_when_the_server_adds_a_note(monkeypatch):
     assert [l["business"] for l in run()] == ["Acme"]
 
 
-def test_a_genuinely_empty_area_is_not_an_error(monkeypatch):
-    monkeypatch.setattr(discover.requests, "post", lambda *a, **k: Resp(200, {"elements": []}))
+def test_a_genuinely_empty_area_is_not_an_error_once_two_answers_agree(monkeypatch):
+    calls = []
+    monkeypatch.setattr(discover.requests, "post", lambda url, **k: calls.append(url) or Resp(200, {"elements": []}))
     assert run() == []
+    assert len(calls) == 2 and calls[0] != calls[1]      # confirmed on the other server before believing it
+
+
+def test_one_wrong_empty_answer_does_not_hide_the_real_results(monkeypatch):
+    real = {"elements": [{"tags": {"name": "Acme", "website": "https://acme.com"}}]}
+    monkeypatch.setattr(discover.requests, "post",
+                        lambda url, **k: Resp(200, {"elements": []}) if url == discover.OVERPASS_URLS[0] else Resp(200, real))
+    assert [l["business"] for l in run()] == ["Acme"]
 
 
 def test_busy_servers_are_retried_on_both_mirrors_then_reported_plainly(monkeypatch):
@@ -99,7 +108,8 @@ def test_it_reports_progress_while_waiting(monkeypatch):
 
 def test_whole_country_searches_get_a_shorter_server_limit(monkeypatch):
     sent = []
-    monkeypatch.setattr(discover.requests, "post", lambda url, data, **k: sent.append(data["data"]) or Resp())
+    one = {"elements": [{"tags": {"name": "Acme", "website": "https://acme.com"}}]}
+    monkeypatch.setattr(discover.requests, "post", lambda url, data, **k: sent.append(data["data"]) or Resp(200, one))
     discover.discover("toys", "US")
     discover.discover("toys", "US", "Texas")
     discover.discover("toys", "US", None, "Austin")

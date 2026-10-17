@@ -249,11 +249,15 @@ class FindTab(ttk.Frame):
         self.personal = tk.BooleanVar(value=True)
         self.chains = tk.BooleanVar(value=False)
         self.save_db = tk.BooleanVar(value=app.cfg.save_to_database)
+        self.skip_checked = tk.BooleanVar(value=True)
+        self.thorough = tk.BooleanVar(value=False)
         self.verify_after = tk.BooleanVar(value=app.cfg.verify_after_search)
         for i, (text, var) in enumerate((
                 ("Include Gmail / Yahoo / Outlook addresses", self.personal),
                 ("Include big chains and franchises", self.chains),
                 ("Save leads to the database", self.save_db),
+                ("Only new businesses (skip ones already checked on earlier searches)", self.skip_checked),
+                ("Thorough: read every contact page even after finding an email (slower)", self.thorough),
                 ("Verify new emails with Hunter when the search finishes (uses credits)", self.verify_after))):
             ttk.Checkbutton(opts, text=text, variable=var).grid(row=i + 1, column=0, columnspan=2,
                                                                 sticky="w", **pad)
@@ -308,7 +312,8 @@ class FindTab(ttk.Frame):
             category=jobs.CATEGORY_LABELS[self.category.get()],
             country=COUNTRY_BY_NAME.get(self.country.get(), ""),
             region="" if self.region.get() == ENTIRE_COUNTRY else self.region.get(),
-            place=self.place.get(), max_businesses=self._max(),
+            place=self.place.get(), max_businesses=self._max(), skip_checked=self.skip_checked.get(),
+            thorough=self.thorough.get(),
             output_dir=Path(self.folder.get()) if self.folder.get().strip() else None,
             exclude_personal=not self.personal.get(), keep_chains=self.chains.get(),
             min_confidence=jobs.CONFIDENCE_LABELS[self.confidence.get()])

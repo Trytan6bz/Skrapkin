@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 
 from pymongo import MongoClient
 
-from .validate import registered_domain
+from .validate import registered_domain, site_key
 
 # Statuses a stored Hunter result can be reused for. 'unknown' may be transient, so it is rechecked.
 CACHEABLE = ("valid", "invalid", "accept_all", "disposable", "claimed")
@@ -22,11 +22,17 @@ def now():
 
 
 def lead_key(row):
-    site = (row.get("website") or "").strip()
-    if site:
-        return registered_domain(site)
-    first_phone = (row.get("phones") or "").split(";")[0].strip()
-    return f"{(row.get('business') or '').strip().lower()}|{first_phone}"
+    return site_key(row.get("website"), row.get("phones"), row.get("business"))
+
+
+def seed_key(seed):
+    """Same identity as lead_key, for a discovery seed (which names its phone field 'phone')."""
+    return site_key(seed.get("website"), seed.get("phone"), seed.get("business"))
+
+
+# Outcomes that won't change soon. Failures and setting-dependent drops (site down, no contact found,
+# below the chosen confidence) are retried sooner.
+STABLE_OUTCOMES = ("lead", "chain", "non_buyer")
 
 
 def _split(value):
@@ -47,6 +53,8 @@ class Database:
         self.leads = self.db["leads"]
         self.checks = self.db["email_checks"]
         self.verified = self.db["verified_emails"]
+        self.checked = self.db["checked_sites"]
+        self.meta = self.db["meta"]
 
     def connect(self):
         """Raise if the server is unreachable; create indexes otherwise."""
@@ -55,6 +63,8 @@ class Database:
         self.leads.create_index([("country", 1), ("region", 1), ("category", 1)])
         self.verified.create_index([("country", 1), ("region", 1), ("category", 1)])
         self.checks.create_index("domain")
+        self.checked.create_index("checked_at")
+        self.backfill_history()
 
     def close(self):
         self.client.close()
@@ -113,6 +123,48 @@ class Database:
         fields = {"emails.$.status": status, **{f"emails.$.{k}": v for k, v in extra.items()}}
         return self.leads.update_many({"emails.address": address}, {"$set": fields}).modified_count
 
+    # search history: every business we have already decided about ----------
+
+    def mark_checked(self, key, outcome, search=None):
+        search = search or {}
+        self.checked.update_one(
+            {"_id": key},
+            {"$set": {"outcome": outcome, "checked_at": now(), "country": search.get("country", ""),
+                      "region": search.get("region", ""), "category": search.get("category", "")}},
+            upsert=True)
+
+    def backfill_history(self):
+        """One time only: count leads saved before the search history existed as already checked, so
+        'only new businesses' doesn't redo them. Clearing the history later is not undone by this."""
+        if self.meta.find_one({"_id": "history_backfilled"}):
+            return 0
+        added = 0
+        for lead in self.leads.find({}, {"key": 1, "country": 1, "region": 1, "category": 1, "updated_at": 1}):
+            result = self.checked.update_one(
+                {"_id": lead["key"]},
+                {"$setOnInsert": {"outcome": "lead", "checked_at": lead.get("updated_at") or now(),
+                                  "country": lead.get("country", ""), "region": lead.get("region", ""),
+                                  "category": lead.get("category", "")}},
+                upsert=True)
+            added += bool(result.upserted_id)
+        self.meta.insert_one({"_id": "history_backfilled", "at": now(), "added": added})
+        return added
+
+    def checked_map(self, stable_days=180, transient_days=30):
+        """{key: {country, region}} for businesses not worth checking again yet."""
+        stable_cutoff = now() - timedelta(days=stable_days)
+        transient_cutoff = now() - timedelta(days=transient_days)
+        query = {"$or": [{"outcome": {"$in": list(STABLE_OUTCOMES)}, "checked_at": {"$gte": stable_cutoff}},
+                         {"outcome": {"$nin": list(STABLE_OUTCOMES)}, "checked_at": {"$gte": transient_cutoff}}]}
+        return {d["_id"]: {"country": d.get("country", ""), "region": d.get("region", "")}
+                for d in self.checked.find(query, {"country": 1, "region": 1})}
+
+    def checked_count(self):
+        return self.checked.count_documents({})
+
+    def clear_checked(self):
+        return self.checked.delete_many({}).deleted_count
+
     # hunter results -----------------------------------------------------
 
     def get_check(self, address, max_age_days):
@@ -162,5 +214,6 @@ class Database:
         for lead in self.leads.find({}, {"emails.status": 1}):
             for e in lead.get("emails", []):
                 status_counts[e["status"]] = status_counts.get(e["status"], 0) + 1
-        return {"leads": self.leads.count_documents({}), "emails": sum(status_counts.values()),
+        return {"leads": self.leads.count_documents({}), "checked": self.checked.count_documents({}),
+                "emails": sum(status_counts.values()),
                 "by_status": status_counts, "verified": self.verified.count_documents({})}

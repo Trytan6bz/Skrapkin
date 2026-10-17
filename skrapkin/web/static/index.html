@@ -56,8 +56,13 @@
           <label class="check"><input id="find-personal" type="checkbox" checked> Include Gmail / Yahoo / Outlook addresses</label>
           <label class="check"><input id="find-chains" type="checkbox"> Include big chains and franchises</label>
           <label class="check"><input id="find-save" type="checkbox" checked> Save leads to the database</label>
+          <label class="check"><input id="find-skip" type="checkbox" checked> Only new businesses <span class="muted">(skip ones already checked on earlier searches)</span></label>
           <label class="check"><input id="find-verify" type="checkbox"> Verify new emails with Hunter when finished <span class="muted">(uses credits)</span></label>
-          <p class="muted small">Sites that disallow crawling in <code>robots.txt</code> are skipped, and requests are rate-limited.</p>
+          <label class="check"><input id="find-thorough" type="checkbox"> Thorough <span class="muted">(read every contact page even after finding an email: slower, finds extra addresses)</span></label>
+          <label>Sites checked at once
+            <input id="find-workers" type="number" min="1" max="32" value="8">
+          </label>
+          <p class="muted small">Each site is still fetched politely, one page at a time with a delay, and sites that disallow crawling in <code>robots.txt</code> are skipped. More sites at once means a faster search.</p>
         </div>
       </div>
 
@@ -167,6 +172,13 @@
         <div class="row"><button id="db-save" class="primary">Save &amp; connect</button></div>
         <p id="db-result" class="status small"></p>
         <p class="muted small">Local: install MongoDB Community, or run <code>docker compose up -d</code>. Cloud: create a free cluster at mongodb.com/atlas and paste its <code>mongodb+srv://…</code> string. A team can share one database.</p>
+      </div>
+      <div class="card narrow">
+        <h2>Search history</h2>
+        <p class="small">SKrapkin remembers every business it has checked (including chains and sites with no contact details) so that repeat searches find <em>new</em> ones.</p>
+        <p id="history-count" class="status small"></p>
+        <div class="row"><button id="history-clear" class="danger">Forget search history</button></div>
+        <p class="muted small">After clearing, the same searches will check the same businesses again. Your saved leads are not touched.</p>
       </div>
       <div class="card narrow">
         <h2>About</h2>

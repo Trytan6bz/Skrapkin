@@ -91,6 +91,15 @@ def normalize_phone(raw, region="US"):
     return phonenumbers.format_number(num, phonenumbers.PhoneNumberFormat.E164)
 
 
+def site_key(website="", phone="", business=""):
+    """Stable identity for a business: its registered domain, else name + first phone."""
+    site = (website or "").strip()
+    if site:
+        return registered_domain(site)
+    first_phone = (phone or "").split(";")[0].strip()
+    return f"{(business or '').strip().lower()}|{first_phone}"
+
+
 def chain_domains(seeds):
     """Domains that appear for several seed businesses are chains/franchises, not independents."""
     counts = Counter(registered_domain(s["website"]) for s in seeds if s.get("website"))

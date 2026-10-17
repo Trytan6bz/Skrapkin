@@ -149,7 +149,8 @@ def _pause(seconds, should_stop):
         time.sleep(POLL_SECONDS)
 
 
-def discover(category, country, region=None, place=None, limit=None, should_stop=None, on_wait=None):
+def discover(category, country, region=None, place=None, limit=None, should_stop=None, on_wait=None,
+             skip=0):
     """Find businesses. Raises Cancelled if should_stop() turns true, DiscoveryError for problems the
     user can act on (area too large, server busy)."""
     should_stop = should_stop or (lambda: False)
@@ -157,9 +158,10 @@ def discover(category, country, region=None, place=None, limit=None, should_stop
         raise ValueError(f"Unknown category: {category!r}")
     region = resolve_region(country, region)
     place = geo.clean_place(place) if place else ""
-    # The server returns matches in id order, so cap what it sends for big areas. Keep headroom,
-    # because chains and non-buyers are dropped afterwards.
-    cap = min(max(limit * 8, 400), 20000) if limit else None
+    # The server returns matches in id order, so cap what it sends for big areas. Keep headroom, because
+    # chains and non-buyers are dropped afterwards, and `skip` businesses were already checked on earlier
+    # runs (they come first in that order, so the cap has to reach past them to find new ones).
+    cap = min(max((limit + skip) * 8, 400), 20000) if limit else None
     # A query that timed out will time out again, so don't keep retrying it. Whole-country searches are
     # the heaviest, so they get a short leash and fail fast with advice instead of making you wait.
     whole_country = not (region or place)
@@ -169,6 +171,7 @@ def discover(category, country, region=None, place=None, limit=None, should_stop
     started = time.monotonic()
     last_problem = "no response"
     slow_replies = 0
+    empty_replies = 0
     too_large = AreaTooLarge("That area is too large for the free OpenStreetMap server to search in time. "
                              "Choose a region or a city and try again.")
     for attempt in range(3):
@@ -201,6 +204,13 @@ def discover(category, country, region=None, place=None, limit=None, should_stop
             remark = str(body.get("remark", "")).lower()
             if not elements and ("timed out" in remark or "out of memory" in remark or "runtime error" in remark):
                 raise too_large
+            if not elements:
+                # An empty answer can be wrong: a busy server sometimes returns nothing, and the backup server's
+                # map data lags behind for some areas. Believe "nothing here" only when two answers agree.
+                empty_replies += 1
+                if empty_replies < 2:
+                    last_problem = "an empty answer"
+                    continue
             return parse_elements(elements, category)
         _pause(5 * (attempt + 1), should_stop)
     raise ServiceBusy("Couldn't get an answer from OpenStreetMap (" + last_problem + "). "

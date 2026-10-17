@@ -9,7 +9,7 @@ from pathlib import Path
 
 from . import regions as geo
 from .cli import cmd_discover, cmd_scrape
-from .db import Database
+from .db import Database, seed_key
 from .discover import Cancelled
 from .hunter import HunterClient
 from .verifier import build_plan, run_plan
@@ -43,6 +43,9 @@ class Settings:
     delay: float = 2.0
     max_pages: int = 4
     max_businesses: int = 100
+    workers: int = 8               # sites checked at once (each still fetched politely)
+    thorough: bool = False         # False: stop at the first own-domain email (faster, fewer credits later)
+    skip_checked: bool = True      # only look at businesses not checked on earlier runs (needs the database)
 
 
 def validate(s):
@@ -57,6 +60,8 @@ def validate(s):
         return str(e)
     if s.max_businesses < 1:
         return "The number of businesses to check must be at least 1."
+    if not 1 <= s.workers <= 32:
+        return "Sites checked at once must be between 1 and 32."
     if not s.output_dir:
         return "Please choose a folder to save the results in."
     return None
@@ -79,17 +84,20 @@ def run_pipeline(s, log, progress, should_stop, db=None, on_lead=None):
     seeds_path, leads_path = output_paths(s)
 
     where = ", ".join(x for x in (s.place, s.region, geo.country_name(s.country)) if x)
-    log(f"Searching for {s.category} businesses in {where}...")
+    exclude = db.checked_map() if (s.skip_checked and db is not None) else None
+    log(f"Searching for {'new ' if exclude else ''}{s.category} businesses in {where}...")
     try:
         found = cmd_discover(
             argparse.Namespace(country=s.country, region=s.region, place=s.place, category=s.category,
-                               output=str(seeds_path), limit=s.max_businesses),
+                               output=str(seeds_path), limit=s.max_businesses, exclude=exclude),
             log=log, should_stop=should_stop)
     except Cancelled:
         log("Stopped.")
         return None, 0
     if not found:
-        log("No businesses found. Try a different region or category.")
+        log("No new businesses: everything found here was already checked, or nothing matched. "
+            "Try a different region, city or category." if exclude else
+            "No businesses found. Try a different region or category.")
         return None, 0
 
     region = geo.find_region(s.country, s.region) if s.region else None
@@ -101,13 +109,20 @@ def run_pipeline(s, log, progress, should_stop, db=None, on_lead=None):
         if on_lead:
             on_lead(lead)
 
+    def handle_checked(seed, outcome):
+        # Remember every decision, including chains and dead sites, so the next run moves on to new businesses.
+        if db is not None:
+            db.mark_checked(seed_key(seed), outcome, {
+                "country": seed.get("country") or search["country"],
+                "region": seed.get("region") or search["region"], "category": seed.get("category", "")})
+
     log("Collecting contact details (this can take several minutes)...")
     count = cmd_scrape(
         argparse.Namespace(seeds=str(seeds_path), output=str(leads_path), delay=s.delay,
                            max_pages=s.max_pages, exclude_personal=s.exclude_personal,
-                           any_domain=False, country=s.country,
+                           any_domain=False, country=s.country, workers=s.workers, thorough=s.thorough,
                            min_confidence=s.min_confidence, keep_chains=s.keep_chains),
-        log=log, progress=progress, should_stop=should_stop, on_lead=handle_lead)
+        log=log, progress=progress, should_stop=should_stop, on_lead=handle_lead, on_checked=handle_checked)
     return leads_path, count
 
 

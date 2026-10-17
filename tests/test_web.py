@@ -148,7 +148,7 @@ def fake_pipeline(monkeypatch, gate=None):
         log("found 2")
         return 2
 
-    def scrape(args, log, progress, should_stop, on_lead):
+    def scrape(args, log, progress, should_stop, on_lead, on_checked=None):
         for i, name in enumerate(["Acme Supply", "=EVIL()"]):
             if gate:
                 gate.wait(5)

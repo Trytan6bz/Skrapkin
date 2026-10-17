@@ -32,7 +32,7 @@ def test_output_paths_are_safe_and_dated():
 def test_pipeline_runs_discover_then_scrape_and_reports(monkeypatch, tmp_path):
     calls = []
     monkeypatch.setattr(jobs, "cmd_discover", lambda a, log, should_stop=None: calls.append(("discover", a)) or 5)
-    monkeypatch.setattr(jobs, "cmd_scrape", lambda a, log, progress, should_stop, on_lead: calls.append(("scrape", a)) or 3)
+    monkeypatch.setattr(jobs, "cmd_scrape", lambda a, log, progress, should_stop, on_lead, on_checked=None: calls.append(("scrape", a)) or 3)
     logs = []
     path, count = jobs.run_pipeline(settings(output_dir=tmp_path, exclude_personal=True, max_businesses=25),
                                     logs.append, lambda d, t: None, lambda: False)
@@ -57,7 +57,13 @@ def test_pipeline_saves_each_lead_to_the_database_with_search_context(monkeypatc
         def upsert_lead(self, lead, search):
             saved.append((lead["business"], search))
 
-    def fake_scrape(a, log, progress, should_stop, on_lead):
+        def checked_map(self):
+            return {}
+
+        def mark_checked(self, key, outcome, search=None):
+            pass
+
+    def fake_scrape(a, log, progress, should_stop, on_lead, on_checked=None):
         on_lead({"business": "Acme"})
         on_lead({"business": "Bolt"})
         return 2
