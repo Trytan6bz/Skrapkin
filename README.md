@@ -23,9 +23,13 @@ of contacts without paying to verify every junk address a scraper turns up.
 
 ```bash
 cp .env.example .env     # set MONGO_PASSWORD
-docker compose up -d --build
+docker compose up -d --build --wait
 # open http://localhost:8080
 ```
+
+> **New to Docker or the command line?** Follow the **[complete step-by-step setup guide](docs/SETUP.md)**. It starts from
+> a computer with nothing installed and covers Windows, macOS and Linux, a tour of every screen, your first search,
+> verifying emails, backups, updating, and troubleshooting.
 
 > [!IMPORTANT]
 > **Research tool. Read the [disclaimer](#disclaimer-and-responsible-use) before you use it.**
@@ -35,6 +39,7 @@ docker compose up -d --build
 
 ## Contents
 
+- [Step-by-step setup guide](docs/SETUP.md) (start here if you are new)
 - [What it does](#what-it-does)
 - [How it works](#how-it-works)
 - [Disclaimer and responsible use](#disclaimer-and-responsible-use)
@@ -162,8 +167,9 @@ cd leads-scrapper
 cp .env.example .env
 #    edit .env, or generate a password:  openssl rand -hex 16
 
-# 2. Build and start everything (first run builds the image, so it takes a minute)
-docker compose up -d --build
+# 2. Build and start everything (the first run downloads about 1 GB, so it can take several minutes;
+#    --wait makes the command finish only once the app is ready)
+docker compose up -d --build --wait
 ```
 
 Open **http://localhost:8080**. The status pills at the top should read *Database: connected*.
@@ -507,6 +513,7 @@ skrapkin/
   cli.py         command line
   web/           web interface (Flask API + static page)
   gui.py, gui_widgets.py   desktop window
+docs/            SETUP.md (complete setup guide) and its screenshots
 tests/           pytest suite
 scripts/         build_regions.py (refreshes the region data; needs pycountry)
 assets/          banner

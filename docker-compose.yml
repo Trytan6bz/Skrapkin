@@ -1,7 +1,7 @@
 # SKrapkin: the web interface and MongoDB.
 #
 #   cp .env.example .env            # then set MONGO_PASSWORD
-#   docker compose up -d --build    # starts MongoDB and the web interface
+#   docker compose up -d --build --wait   # starts MongoDB and the web interface, and waits until ready
 #   open http://localhost:8080
 #
 # See the README for the full walkthrough.
