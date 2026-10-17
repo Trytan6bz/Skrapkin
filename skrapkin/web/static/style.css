@@ -33,6 +33,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }   /* component display rules must not override the hidden attribute */
 html { background: var(--bg); }
 body {
   margin: 0;
@@ -121,6 +122,7 @@ progress { width: 100%; height: 8px; accent-color: var(--accent); }
 .status { margin: 8px 0 12px; min-height: 1.4em; }
 .status.error { color: var(--bad); }
 .status.ok { color: var(--good); }
+.status.warn { color: var(--warn); }
 
 /* tables */
 .table-wrap {

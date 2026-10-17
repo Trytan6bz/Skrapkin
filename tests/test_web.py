@@ -144,7 +144,7 @@ def test_key_from_environment_is_reported(client, monkeypatch):
 # ---- find leads -----------------------------------------------------------------------------------
 
 def fake_pipeline(monkeypatch, gate=None):
-    def discover(args, log):
+    def discover(args, log, should_stop=None):
         log("found 2")
         return 2
 
@@ -215,7 +215,7 @@ def test_verify_after_requires_a_key(client):
 
 
 def test_failures_become_plain_language_errors(client, monkeypatch):
-    def boom(args, log):
+    def boom(args, log, should_stop=None):
         raise RuntimeError("Overpass API unavailable after retries: 502")
 
     monkeypatch.setattr(jobs, "cmd_discover", boom)
@@ -301,7 +301,7 @@ def test_status_lists_every_country_and_regions_load_per_country(client):
 def test_find_accepts_any_country_region_and_city(client, monkeypatch):
     seen = {}
 
-    def discover(args, log):
+    def discover(args, log, should_stop=None):
         seen.update(country=args.country, region=args.region, place=args.place)
         return 0
 
@@ -313,7 +313,7 @@ def test_find_accepts_any_country_region_and_city(client, monkeypatch):
 
 
 def test_find_allows_a_whole_country_search(client, monkeypatch):
-    monkeypatch.setattr(jobs, "cmd_discover", lambda a, log: 0)
+    monkeypatch.setattr(jobs, "cmd_discover", lambda a, log, should_stop=None: 0)
     r = client.post("/api/find", json={**GOOD_FIND, "region": "", "country": "DE"}, headers=H)
     assert r.status_code == 202
 

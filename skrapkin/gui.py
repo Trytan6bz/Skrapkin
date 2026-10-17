@@ -13,6 +13,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from . import config, jobs
 from . import regions as geo
+from .discover import DiscoveryError
 from .gui_widgets import DataTable, copy_to_clipboard
 from .hunter import HunterClient, HunterError, InvalidKey
 from .verifier import build_plan
@@ -261,7 +262,7 @@ class FindTab(ttk.Frame):
         actions.pack(fill="x", padx=10, pady=6)
         self.start_btn = ttk.Button(actions, text="Find leads", command=self.start)
         self.start_btn.pack(side="left")
-        self.stop_btn = ttk.Button(actions, text="Stop", command=self.stop_flag.set, state="disabled")
+        self.stop_btn = ttk.Button(actions, text="Stop", command=self._stop, state="disabled")
         self.stop_btn.pack(side="left", padx=6)
         self.open_btn = ttk.Button(actions, text="Open CSV", state="disabled",
                                    command=lambda: open_path(self.results_path))
@@ -312,11 +313,21 @@ class FindTab(ttk.Frame):
             exclude_personal=not self.personal.get(), keep_chains=self.chains.get(),
             min_confidence=jobs.CONFIDENCE_LABELS[self.confidence.get()])
 
+    def _stop(self):
+        self.stop_flag.set()
+        self.stop_btn.config(state="disabled", text="Stopping...")
+        self.status.config(text="Stopping...")
+
     def start(self):
         settings = self._settings()
         problem = jobs.validate(settings)
         if problem:
             messagebox.showwarning("Check your entries", problem)
+            return
+        if not settings.region and not settings.place.strip() and not messagebox.askyesno(
+                "Search a whole country?",
+                "A whole-country search is slow and often times out on the free OpenStreetMap server, and it "
+                "returns only a sample. Choosing a region or city is faster and gives a fuller result.\n\nSearch anyway?"):
             return
         db = self.app.db if self.save_db.get() else None
         if self.save_db.get() and db is None and not messagebox.askyesno(
@@ -333,9 +344,10 @@ class FindTab(ttk.Frame):
         self.counter.config(text="")
         self.open_btn.config(state="disabled")
         self.start_btn.config(state="disabled")
-        self.stop_btn.config(state="normal")
-        self.bar.config(value=0)
-        self.status.config(text="Working...")
+        self.stop_btn.config(state="normal", text="Stop")
+        self.bar.config(mode="indeterminate")   # moves while waiting on OpenStreetMap
+        self.bar.start(60)
+        self.status.config(text="Searching OpenStreetMap...")
         threading.Thread(target=self._work, args=(settings, db), daemon=True).start()
 
     def _work(self, settings, db):
@@ -348,6 +360,8 @@ class FindTab(ttk.Frame):
                 should_stop=self.stop_flag.is_set, db=db,
                 on_lead=lambda lead: app.post(lambda: self._on_lead(lead)))
             app.post(lambda: self._finish(path, count, db is not None))
+        except DiscoveryError as e:
+            app.post(lambda: self._fail(str(e)))
         except RuntimeError:
             app.post(lambda: self._fail("Couldn't reach the business database (OpenStreetMap). "
                                         "Check your internet connection and try again in a minute."))
@@ -355,6 +369,9 @@ class FindTab(ttk.Frame):
             app.post(lambda: self._fail(f"Something went wrong: {e}"))
 
     def _progress(self, done, total):
+        if total and str(self.bar.cget("mode")) == "indeterminate":
+            self.bar.stop()
+            self.bar.config(mode="determinate")
         self.bar.config(maximum=max(total, 1), value=done)
         self.status.config(text=f"Checked {done} of {total} businesses")
 
@@ -366,8 +383,10 @@ class FindTab(ttk.Frame):
                                                   lead["phones"], lead["confidence"]), lead, at_top=True)
 
     def _reset(self):
+        self.bar.stop()
+        self.bar.config(mode="determinate", value=0)
         self.start_btn.config(state="normal")
-        self.stop_btn.config(state="disabled")
+        self.stop_btn.config(state="disabled", text="Stop")
 
     def _fail(self, message):
         self._reset()

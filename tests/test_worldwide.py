@@ -77,7 +77,7 @@ def test_discover_passes_a_cap_scaled_to_the_limit(monkeypatch):
     sent = {}
 
     class Resp:
-        def raise_for_status(self): pass
+        status_code, ok = 200, True
         def json(self): return {"elements": [{"tags": {"name": "Acme", "website": "https://acme.ng"}}]}
 
     monkeypatch.setattr(discover.requests, "post", lambda url, data, **k: sent.update(data) or Resp())
@@ -89,7 +89,7 @@ def test_discover_passes_a_cap_scaled_to_the_limit(monkeypatch):
 
 def test_cli_discover_tags_seeds_with_country_and_region(monkeypatch, tmp_path):
     seen = {}
-    monkeypatch.setattr(cli, "discover", lambda category, country, region, place, limit: seen.update(
+    monkeypatch.setattr(cli, "discover", lambda category, country, region, place, limit, **kw: seen.update(
         country=country, region=region, place=place) or [{"business": "Acme", "website": "https://acme.com.ng",
                                                           "phone": "", "email": "", "city": "Ikeja", "brand": "",
                                                           "category": category}])
@@ -108,7 +108,7 @@ def test_cli_requires_a_valid_country():
 
 def test_old_area_flag_still_means_a_place_name(monkeypatch, tmp_path):
     seen = {}
-    monkeypatch.setattr(cli, "discover", lambda category, country, region, place, limit: seen.update(
+    monkeypatch.setattr(cli, "discover", lambda category, country, region, place, limit, **kw: seen.update(
         place=place) or [])
     cli.main(["discover", "--country", "US", "--area", "Houston", "--category", "toys", "-o", str(tmp_path / "s.csv")])
     assert seen["place"] == "Houston"

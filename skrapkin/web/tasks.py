@@ -1,9 +1,12 @@
 """Background tasks for the web interface: one at a time, with progress, log lines and live results."""
 
+import logging
 import threading
 import time
 import uuid
 from collections import deque
+
+log = logging.getLogger("skrapkin.tasks")
 
 MAX_LOG_LINES = 300
 KEEP_TASKS = 20
@@ -51,10 +54,11 @@ class Task:
 
 
 class TaskManager:
-    def __init__(self, describe_error=str):
+    def __init__(self, describe_error=str, expected_errors=()):
         self.tasks = {}
         self._lock = threading.Lock()
         self._describe = describe_error
+        self._expected = tuple(expected_errors)  # failures the user can act on: logged without a traceback
 
     def active(self):
         with self._lock:
@@ -76,12 +80,18 @@ class TaskManager:
                     del self.tasks[old.id]
 
         def run():
+            log.info("task %s (%s) started", task.id, kind)
             try:
                 fn(task)
                 task.state = "stopped" if task.stop.is_set() else "done"
-            except Exception as e:  # surfaced to the UI, never swallowed
+            except Exception as e:  # surfaced to the UI and the log, never swallowed
                 task.error = self._describe(e)
                 task.state = "error"
+                if isinstance(e, self._expected):
+                    log.warning("task %s (%s) failed: %s", task.id, kind, task.error)
+                else:
+                    log.exception("task %s (%s) crashed", task.id, kind)
+            log.info("task %s (%s) %s after %.0fs", task.id, kind, task.state, time.time() - task.started)
 
         threading.Thread(target=run, daemon=True).start()
         return task

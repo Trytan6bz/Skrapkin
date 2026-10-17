@@ -15,6 +15,7 @@ ENTRYPOINT ["python", "-m", "skrapkin.cli"]
 
 # ---- web: the browser interface (default for docker compose up) ----------------------------
 FROM cli AS web
-ENV SKRAPKIN_WEB_HOST=0.0.0.0 SKRAPKIN_WEB_PORT=8080 SKRAPKIN_OUTPUT_DIR=/data/output
+ENV SKRAPKIN_WEB_HOST=0.0.0.0 SKRAPKIN_WEB_PORT=8080 SKRAPKIN_OUTPUT_DIR=/data/output \
+    SKRAPKIN_CONTAINER=1
 EXPOSE 8080
 ENTRYPOINT ["python", "-m", "skrapkin.web"]

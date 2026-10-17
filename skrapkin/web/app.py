@@ -23,6 +23,7 @@ from werkzeug.exceptions import HTTPException
 from .. import __version__, config, jobs
 from .. import regions as geo
 from ..csvsafe import safe_row
+from ..discover import DiscoveryError
 from ..hunter import HunterClient, HunterError, InvalidKey
 from ..verifier import build_plan
 from .tasks import Busy, TaskManager
@@ -38,8 +39,8 @@ def describe_error(error):
     """Plain-language message for an exception. Never echoes connection strings or keys."""
     if isinstance(error, InvalidKey):
         return "Hunter rejected the API key. Re-enter it on the Verify tab."
-    if isinstance(error, HunterError):
-        return str(error)
+    if isinstance(error, (HunterError, DiscoveryError)):
+        return str(error)  # these messages are already written for the user
     if isinstance(error, mongo_errors.ServerSelectionTimeoutError):
         return "Couldn't reach the database. Check that MongoDB is running and the address is right."
     if isinstance(error, mongo_errors.OperationFailure) and getattr(error, "code", None) in (13, 18):
@@ -132,7 +133,8 @@ def create_app(cfg=None, connect=True):
     app.config["MAX_CONTENT_LENGTH"] = 1_000_000
     svc = Services(cfg)
     app.extensions["skrapkin"] = svc
-    tasks = TaskManager(describe_error)
+    tasks = TaskManager(describe_error, expected_errors=(HunterError, DiscoveryError, mongo_errors.PyMongoError,
+                                                          OSError))
     app.extensions["skrapkin_tasks"] = tasks
 
     extra_hosts = {h.strip().lower() for h in os.environ.get("SKRAPKIN_ALLOWED_HOSTS", "").split(",") if h.strip()}

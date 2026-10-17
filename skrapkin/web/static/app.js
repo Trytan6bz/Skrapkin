@@ -199,11 +199,30 @@
 
   function setBusy(kind) {
     busy = kind;
+    $('find-start').textContent = kind === 'find' ? 'Searching…' : 'Find leads';
+    $('verify-start').textContent = kind === 'verify' ? 'Verifying…' : 'Verify now';
+    $('find-stop').textContent = 'Stop';
+    $('verify-stop').textContent = 'Stop';
     $('find-start').disabled = !!kind;
     $('verify-start').disabled = !!kind;
     $('verify-preview').disabled = kind === 'verify';
     $('find-stop').disabled = kind !== 'find';
     $('verify-stop').disabled = kind !== 'verify';
+  }
+
+  async function stopTask(taskId, button) {
+    if (!taskId) return;
+    button.disabled = true;
+    button.textContent = 'Stopping…';
+    try { await api(`/api/tasks/${taskId}/stop`, { method: 'POST' }); }
+    catch (e) { toast(e.message, 'error'); button.disabled = false; button.textContent = 'Stop'; }
+  }
+
+  // Bar fills as businesses are checked; before that (waiting on OpenStreetMap) it just animates.
+  function showProgress(bar, snap) {
+    if (snap.state === 'running' && snap.total === 0) { bar.removeAttribute('value'); return; }
+    bar.max = Math.max(snap.total, 1);
+    bar.value = snap.done;
   }
 
   // ---- countries and regions -----------------------------------------------------------------------
@@ -225,6 +244,7 @@
     fillSelect(select, list.map((r) => ({ label: r.name, value: r.name })), firstLabel);
     select.disabled = !code || list.length === 0;
     if (keep && list.some((r) => r.name === keep)) select.value = keep;
+    select.dispatchEvent(new Event('regions-loaded'));
   }
 
   // ---- find leads --------------------------------------------------------------------------------
@@ -256,10 +276,22 @@
       { key: 'confidence', title: 'Confidence' },
     ], { id: (r) => r.n, empty: 'Results appear here as they are found.' });
     $('find-start').addEventListener('click', startFind);
-    $('find-stop').addEventListener('click', () => findTaskId && api(`/api/tasks/${findTaskId}/stop`, { method: 'POST' }).catch((e) => toast(e.message, 'error')));
+    $('find-stop').addEventListener('click', () => stopTask(findTaskId, $('find-stop')));
+    const hint = () => { $('find-hint').hidden = !!($('find-region').value || $('find-place').value.trim()); };
+    ['find-country', 'find-region'].forEach((id) => $(id).addEventListener('change', hint));
+    $('find-place').addEventListener('input', hint);
+    $('find-region').addEventListener('regions-loaded', hint);
+    hint();
   }
 
   async function startFind() {
+    if (!$('find-region').value && !$('find-place').value.trim()) {
+      const name = $('find-country').selectedOptions[0].textContent;
+      const ok = await confirmDialog(`Search all of ${name}?`,
+        'A whole-country search is slow and often times out on the free OpenStreetMap server, and returns only a sample. Choosing a region or city is faster and gives a fuller result.',
+        'Search anyway');
+      if (!ok) return;
+    }
     const body = {
       category: $('find-category').value, country: $('find-country').value,
       region: $('find-region').value, place: $('find-place').value.trim(),
@@ -285,10 +317,10 @@
     $('find-counter').textContent = '';
     setBusy('find');
     const final = await follow(taskId, (s) => {
-      const bar = $('find-progress');
-      bar.max = Math.max(s.total, 1);
-      bar.value = s.done;
-      if (s.logs.length) setStatus($('find-status'), s.logs[s.logs.length - 1]);
+      showProgress($('find-progress'), s);
+      if (s.logs.length && s.state === 'running') {
+        setStatus($('find-status'), `${s.logs[s.logs.length - 1]} (${Math.round(s.elapsed)}s)`);
+      } else if (s.logs.length) setStatus($('find-status'), s.logs[s.logs.length - 1]);
       $('find-log').textContent = s.logs.join('\n');
       if (s.leads.length) {
         const start = findRows.length;
@@ -299,6 +331,8 @@
       $('find-counter').textContent = findRows.length ? `${findRows.length} leads · ${withEmail} with an email` : '';
     });
     setBusy(null);
+    $('find-progress').max = 1;
+    $('find-progress').value = 0;
     if (!final) return;
     const dl = $('find-download');
     if (final.state === 'error') {
@@ -405,7 +439,7 @@
     $('verify-save-settings').addEventListener('click', saveVerifySettings);
     $('verify-preview').addEventListener('click', () => previewVerify().catch((e) => toast(e.message, 'error')));
     $('verify-start').addEventListener('click', startVerify);
-    $('verify-stop').addEventListener('click', () => verifyTaskId && api(`/api/tasks/${verifyTaskId}/stop`, { method: 'POST' }).catch((e) => toast(e.message, 'error')));
+    $('verify-stop').addEventListener('click', () => stopTask(verifyTaskId, $('verify-stop')));
   }
 
   async function refreshHunter() {
@@ -479,12 +513,12 @@
     verifyTaskId = taskId;
     setBusy('verify');
     const final = await follow(taskId, (s) => {
-      const bar = $('verify-progress');
-      bar.max = Math.max(s.total, 1);
-      bar.value = s.done;
+      showProgress($('verify-progress'), s);
       if (s.logs.length) setStatus($('verify-summary'), s.logs[s.logs.length - 1]);
     });
     setBusy(null);
+    $('verify-progress').max = 1;
+    $('verify-progress').value = 0;
     if (!final) return;
     if (final.state === 'error') {
       setStatus($('verify-summary'), final.error, 'error');

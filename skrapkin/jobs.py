@@ -10,6 +10,7 @@ from pathlib import Path
 from . import regions as geo
 from .cli import cmd_discover, cmd_scrape
 from .db import Database
+from .discover import Cancelled
 from .hunter import HunterClient
 from .verifier import build_plan, run_plan
 
@@ -79,10 +80,14 @@ def run_pipeline(s, log, progress, should_stop, db=None, on_lead=None):
 
     where = ", ".join(x for x in (s.place, s.region, geo.country_name(s.country)) if x)
     log(f"Searching for {s.category} businesses in {where}...")
-    found = cmd_discover(
-        argparse.Namespace(country=s.country, region=s.region, place=s.place, category=s.category,
-                           output=str(seeds_path), limit=s.max_businesses),
-        log=log)
+    try:
+        found = cmd_discover(
+            argparse.Namespace(country=s.country, region=s.region, place=s.place, category=s.category,
+                               output=str(seeds_path), limit=s.max_businesses),
+            log=log, should_stop=should_stop)
+    except Cancelled:
+        log("Stopped.")
+        return None, 0
     if not found:
         log("No businesses found. Try a different region or category.")
         return None, 0

@@ -31,7 +31,7 @@ def test_output_paths_are_safe_and_dated():
 
 def test_pipeline_runs_discover_then_scrape_and_reports(monkeypatch, tmp_path):
     calls = []
-    monkeypatch.setattr(jobs, "cmd_discover", lambda a, log: calls.append(("discover", a)) or 5)
+    monkeypatch.setattr(jobs, "cmd_discover", lambda a, log, should_stop=None: calls.append(("discover", a)) or 5)
     monkeypatch.setattr(jobs, "cmd_scrape", lambda a, log, progress, should_stop, on_lead: calls.append(("scrape", a)) or 3)
     logs = []
     path, count = jobs.run_pipeline(settings(output_dir=tmp_path, exclude_personal=True, max_businesses=25),
@@ -44,7 +44,7 @@ def test_pipeline_runs_discover_then_scrape_and_reports(monkeypatch, tmp_path):
 
 
 def test_pipeline_stops_when_nothing_found(monkeypatch, tmp_path):
-    monkeypatch.setattr(jobs, "cmd_discover", lambda a, log: 0)
+    monkeypatch.setattr(jobs, "cmd_discover", lambda a, log, should_stop=None: 0)
     logs = []
     assert jobs.run_pipeline(settings(output_dir=tmp_path), logs.append, None, None) == (None, 0)
     assert any("No businesses found" in m for m in logs)
@@ -62,7 +62,7 @@ def test_pipeline_saves_each_lead_to_the_database_with_search_context(monkeypatc
         on_lead({"business": "Bolt"})
         return 2
 
-    monkeypatch.setattr(jobs, "cmd_discover", lambda a, log: 5)
+    monkeypatch.setattr(jobs, "cmd_discover", lambda a, log, should_stop=None: 5)
     monkeypatch.setattr(jobs, "cmd_scrape", fake_scrape)
     seen = []
     jobs.run_pipeline(settings(output_dir=tmp_path), print, None, None, db=FakeDb(), on_lead=seen.append)

@@ -20,7 +20,7 @@ from urllib.parse import urlparse
 
 from . import config
 from . import regions as geo
-from .discover import CATEGORIES, discover, resolve_region
+from .discover import CATEGORIES, DiscoveryError, discover, resolve_region
 from .csvsafe import safe_row
 from .extract import (contact_links, extract_emails, extract_name, extract_phones,
                       filter_free_mail, same_site_emails)
@@ -63,7 +63,7 @@ def read_seeds(path):
         return [{"website": l.strip()} for l in f if l.strip() and not l.startswith("#")]
 
 
-def cmd_discover(args, log=print):
+def cmd_discover(args, log=print, should_stop=lambda: False):
     country = geo.find_country(getattr(args, "country", None))
     if not country:
         raise ValueError("Choose a country (an ISO code like US, NG, GB, or a name like Nigeria).")
@@ -73,7 +73,9 @@ def cmd_discover(args, log=print):
     if not region and not place:
         log(f"Searching all of {geo.country_name(country)}; results are limited to a sample. "
             "Pick a region or city for a complete picture.")
-    leads = discover(args.category, country, region, place, limit)
+    leads = discover(args.category, country, region, place, limit, should_stop=should_stop,
+                     on_wait=lambda secs: log(f"Still waiting for OpenStreetMap ({int(secs)}s). "
+                                              "Large areas can take a few minutes."))
     for lead in leads:
         lead["country"], lead["region"] = country, region["name"] if region else ""
     seen, rows = set(), []
@@ -333,6 +335,8 @@ def main(argv=None):
     args = p.parse_args(argv)
     try:
         args.func(args)
+    except DiscoveryError as e:
+        sys.exit(str(e))
     except ValueError as e:
         p.error(str(e))
 
