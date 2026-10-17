@@ -52,8 +52,8 @@ class Database:
         """Raise if the server is unreachable; create indexes otherwise."""
         self.client.admin.command("ping")
         self.leads.create_index("key", unique=True)
-        self.leads.create_index([("state", 1), ("category", 1)])
-        self.verified.create_index([("state", 1), ("category", 1)])
+        self.leads.create_index([("country", 1), ("region", 1), ("category", 1)])
+        self.verified.create_index([("country", 1), ("region", 1), ("category", 1)])
         self.checks.create_index("domain")
 
     def close(self):
@@ -78,7 +78,8 @@ class Database:
             "business": row.get("business") or existing.get("business", ""),
             "website": row.get("website") or existing.get("website", ""),
             "category": row.get("category") or (search or {}).get("category") or existing.get("category", ""),
-            "state": (search or {}).get("state") or existing.get("state", ""),
+            "country": row.get("country") or (search or {}).get("country") or existing.get("country", ""),
+            "region": row.get("region") or (search or {}).get("region") or existing.get("region", ""),
             "city": row.get("city") or existing.get("city", ""),
             "confidence": row.get("confidence", existing.get("confidence", "")),
             "source_pages": row.get("source_pages", existing.get("source_pages", "")),
@@ -89,9 +90,9 @@ class Database:
         self.leads.update_one({"key": key}, {"$set": doc, "$setOnInsert": {"created_at": now()}}, upsert=True)
         return key
 
-    def list_leads(self, text="", category=None, state=None, limit=2000):
+    def list_leads(self, text="", category=None, country=None, region=None, limit=2000):
         query = _text_filter(text, ["business", "website", "city", "emails.address", "phones"])
-        extra = {k: v for k, v in (("category", category), ("state", state)) if v}
+        extra = {k: v for k, v in (("category", category), ("country", country), ("region", region)) if v}
         if query and extra:
             query = {"$and": [query, extra]}
         else:
@@ -138,15 +139,15 @@ class Database:
         doc = {
             "email": address,
             "business": lead.get("business", ""), "website": lead.get("website", ""),
-            "category": lead.get("category", ""), "state": lead.get("state", ""),
-            "city": lead.get("city", ""), "phones": lead.get("phones", []),
+            "category": lead.get("category", ""), "country": lead.get("country", ""),
+            "region": lead.get("region", ""), "city": lead.get("city", ""), "phones": lead.get("phones", []),
             "score": result.get("score"), "verified_at": now(),
         }
         self.verified.replace_one({"_id": address}, doc, upsert=True)
 
-    def list_verified(self, text="", category=None, state=None, limit=5000):
+    def list_verified(self, text="", category=None, country=None, region=None, limit=5000):
         query = _text_filter(text, ["email", "business", "website", "city"])
-        extra = {k: v for k, v in (("category", category), ("state", state)) if v}
+        extra = {k: v for k, v in (("category", category), ("country", country), ("region", region)) if v}
         if query and extra:
             query = {"$and": [query, extra]}
         else:

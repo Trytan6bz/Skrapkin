@@ -1,29 +1,20 @@
 # syntax=docker/dockerfile:1
 
-# ---- cli: headless command-line image (small) --------------------------------------------------
+# ---- cli: headless command-line image ------------------------------------------------------
 FROM python:3.12-slim AS cli
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 \
-    SKRAPKIN_HOME=/tmp/skrapkin-home
+    SKRAPKIN_HOME=/config PYTHONPATH=/app
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 COPY skrapkin ./skrapkin
-RUN useradd --create-home --uid 1000 skrapkin && mkdir /data && chown skrapkin /data
+RUN useradd --create-home --uid 1000 skrapkin && mkdir /data /config && chown skrapkin /data /config
 USER skrapkin
 WORKDIR /data
-ENV PYTHONPATH=/app
 ENTRYPOINT ["python", "-m", "skrapkin.cli"]
 
-# ---- gui: desktop window shown through X11 (Linux). The full python image ships Tk. ----------
-FROM python:3.12 AS gui
-ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 \
-    SKRAPKIN_HOME=/tmp/skrapkin-home
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-COPY skrapkin ./skrapkin
-COPY run_gui.py .
-RUN useradd --create-home --uid 1000 skrapkin && mkdir /data && chown skrapkin /data
-USER skrapkin
-ENV HOME=/data
-CMD ["python", "run_gui.py"]
+# ---- web: the browser interface (default for docker compose up) ----------------------------
+FROM cli AS web
+ENV SKRAPKIN_WEB_HOST=0.0.0.0 SKRAPKIN_WEB_PORT=8080 SKRAPKIN_OUTPUT_DIR=/data/output
+EXPOSE 8080
+ENTRYPOINT ["python", "-m", "skrapkin.web"]

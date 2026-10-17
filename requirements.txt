@@ -4,3 +4,6 @@ dnspython>=2.6
 phonenumbers>=8.13
 pymongo>=4.8
 keyring>=25.0
+flask>=3.0
+waitress>=3.0
+tldextract>=5.1

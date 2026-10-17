@@ -1,11 +1,12 @@
 """Usage:
-    python -m skrapkin.cli discover --area Houston --country US --category toys -o seeds.csv
-    python -m skrapkin.cli scrape seeds.csv -o leads.csv --country US
+    python -m skrapkin.cli discover --country US --region Texas --category toys -o seeds.csv
+    python -m skrapkin.cli discover --country NG --region Lagos --place Ikeja --category clothing -o seeds.csv
+    python -m skrapkin.cli scrape seeds.csv -o leads.csv
     python -m skrapkin.cli audit leads.csv -n 50 -o audit.csv      # then fill in is_legit (y/n)
     python -m skrapkin.cli audit audit.csv --score                 # prints precision
 
     # with MongoDB (see docker-compose.yml) and a Hunter key in HUNTER_API_KEY:
-    python -m skrapkin.cli scrape seeds.csv --save-db --state Texas
+    python -m skrapkin.cli scrape seeds.csv --save-db
     python -m skrapkin.cli verify --preview                        # free: shows what would be checked
     python -m skrapkin.cli verify --yes                            # spends Hunter credits
     python -m skrapkin.cli export verified -o verified.csv
@@ -18,20 +19,23 @@ import sys
 from urllib.parse import urlparse
 
 from . import config
-from .discover import CATEGORIES, discover
+from . import regions as geo
+from .discover import CATEGORIES, discover, resolve_region
+from .csvsafe import safe_row
 from .extract import (contact_links, extract_emails, extract_name, extract_phones,
                       filter_free_mail, same_site_emails)
 from .fetcher import Fetcher
 from .validate import (chain_domains, confidence, is_aggregator, is_junk_email, is_non_buyer, mx_status,
                        normalize_phone, registered_domain)
 
-SEED_FIELDS = ["category", "business", "website", "phone", "email", "city", "brand"]
+SEED_FIELDS = ["category", "business", "website", "phone", "email", "city", "brand", "country", "region"]
 MAX_SCRAPED_PHONES = 3
 CONFIDENCE_RANK = {"low": 0, "medium": 1, "high": 2}
-LEAD_FIELDS = ["category", "business", "website", "emails", "phones", "city", "confidence", "source_pages"]
+LEAD_FIELDS = ["category", "business", "website", "emails", "phones", "city", "country", "region", "confidence",
+               "source_pages"]
 
 
-def scrape_site(fetcher, url, max_pages, include_personal, any_domain=False):
+def scrape_site(fetcher, url, max_pages, include_personal, any_domain=False, region="US"):
     html = fetcher.get(url)
     if html is None:
         return None
@@ -44,7 +48,7 @@ def scrape_site(fetcher, url, max_pages, include_personal, any_domain=False):
     emails, phones = set(), []
     for h in htmls:
         emails.update(extract_emails(h, include_personal))
-        phones.extend(p for p in extract_phones(h) if p not in phones)
+        phones.extend(p for p in extract_phones(h, region) if p not in phones)
     emails = emails if any_domain else same_site_emails(emails, url)
     # Many numbers on a site usually means branches or partners, not this business.
     return {"name": extract_name(html), "emails": emails, "phones": set(phones[:MAX_SCRAPED_PHONES]),
@@ -60,14 +64,24 @@ def read_seeds(path):
 
 
 def cmd_discover(args, log=print):
-    leads = discover(args.area, args.category, args.country)
+    country = geo.find_country(getattr(args, "country", None))
+    if not country:
+        raise ValueError("Choose a country (an ISO code like US, NG, GB, or a name like Nigeria).")
+    region = resolve_region(country, getattr(args, "region", None))
+    place = getattr(args, "place", None) or getattr(args, "area", None) or ""
+    limit = getattr(args, "limit", None)
+    if not region and not place:
+        log(f"Searching all of {geo.country_name(country)}; results are limited to a sample. "
+            "Pick a region or city for a complete picture.")
+    leads = discover(args.category, country, region, place, limit)
+    for lead in leads:
+        lead["country"], lead["region"] = country, region["name"] if region else ""
     seen, rows = set(), []
     for lead in leads:
         key = (lead["business"].lower(), lead["website"].lower())
         if key not in seen and (lead["website"] or lead["phone"] or lead["email"]):
             seen.add(key)
             rows.append(lead)
-    limit = getattr(args, "limit", None)
     if limit and len(rows) > limit:
         # Businesses with a website can yield emails, so keep those first.
         rows = sorted(rows, key=lambda r: not r["website"])[:limit]
@@ -75,7 +89,7 @@ def cmd_discover(args, log=print):
     with open(args.output, "w", newline="", encoding="utf-8-sig") as f:
         w = csv.DictWriter(f, fieldnames=SEED_FIELDS)
         w.writeheader()
-        w.writerows(rows)
+        w.writerows(safe_row(r) for r in rows)
     with_site = sum(1 for r in rows if r["website"])
     log(f"wrote {len(rows)} businesses to {args.output} ({with_site} with a website)")
     return len(rows)
@@ -102,8 +116,8 @@ def cmd_scrape(args, log=print, progress=lambda done, total: None, should_stop=l
     if getattr(args, "save_db", False):
         from .jobs import connect_db  # lazy: jobs imports this module
         db = connect_db(config.Config.load())
-        search = {"state": getattr(args, "state", "") or "", "category": ""}
-        on_lead_db = lambda lead: db.upsert_lead(lead, search)  # noqa: E731
+        on_lead_db = lambda lead: db.upsert_lead(  # noqa: E731
+            lead, {"country": lead.get("country", ""), "region": getattr(args, "region", "") or ""})
     fetcher = Fetcher(delay=args.delay)
     all_seeds = read_seeds(args.seeds)
     chains = set() if args.keep_chains else chain_domains(all_seeds)
@@ -127,6 +141,7 @@ def cmd_scrape(args, log=print, progress=lambda done, total: None, should_stop=l
             {e.strip().lower() for e in seed.get("email", "").split(";") if e.strip()},
             not args.exclude_personal)
         osm_phones = {p.strip() for p in seed.get("phone", "").split(";") if p.strip()}
+        country = seed.get("country") or geo.find_country(getattr(args, "country", None)) or "US"
         result = None
         if site:
             url = site if site.startswith("http") else "https://" + site
@@ -134,11 +149,12 @@ def cmd_scrape(args, log=print, progress=lambda done, total: None, should_stop=l
             if domain in seen:
                 continue
             seen.add(domain)
-            result = scrape_site(fetcher, url, args.max_pages, not args.exclude_personal, args.any_domain)
+            result = scrape_site(fetcher, url, args.max_pages, not args.exclude_personal, args.any_domain,
+                                 region=country)
             if result is None:
                 log(f"skipped {url} (blocked by robots.txt or unreachable)")
         emails, own_domain = clean_emails(osm_emails | (result["emails"] if result else set()), site)
-        phones = clean_phones(osm_phones | (result["phones"] if result else set()), args.country)
+        phones = clean_phones(osm_phones | (result["phones"] if result else set()), country)
         level = confidence(emails, phones, own_domain)
         if not level:
             dropped["no_contact"] += 1
@@ -153,6 +169,8 @@ def cmd_scrape(args, log=print, progress=lambda done, total: None, should_stop=l
             "emails": "; ".join(sorted(emails)),
             "phones": "; ".join(sorted(phones)),
             "city": seed.get("city", ""),
+            "country": country if seed.get("country") else "",
+            "region": seed.get("region") or getattr(args, "region", "") or "",
             "confidence": level,
             "source_pages": "; ".join(result["pages"]) if result else "openstreetmap",
         })
@@ -167,7 +185,7 @@ def cmd_scrape(args, log=print, progress=lambda done, total: None, should_stop=l
     with open(args.output, "w", newline="", encoding="utf-8-sig") as f:
         w = csv.DictWriter(f, fieldnames=LEAD_FIELDS)
         w.writeheader()
-        w.writerows(rows)
+        w.writerows(safe_row(r) for r in rows)
     progress(len(all_seeds), len(all_seeds))
     log(f"wrote {len(rows)} leads to {args.output}; dropped: {dropped}")
     return len(rows)
@@ -194,7 +212,7 @@ def cmd_audit(args):
     with open(args.output, "w", newline="", encoding="utf-8-sig") as f:
         w = csv.DictWriter(f, fieldnames=LEAD_FIELDS + ["is_legit"])
         w.writeheader()
-        w.writerows(sample)
+        w.writerows(safe_row(r) for r in sample)
     print(f"wrote {len(sample)} sampled leads to {args.output}. Check each (right business? working "
           f"email/phone? would buy in bulk?) and set is_legit to y or n, then run: audit {args.output} --score")
 
@@ -244,19 +262,19 @@ def cmd_export(args, log=print):
 
     db = connect_db(config.Config.load())
     if args.what == "verified":
-        header = ["email", "business", "state", "city", "website", "phones", "score", "verified_at"]
-        rows = [[d["email"], d.get("business", ""), d.get("state", ""), d.get("city", ""), d.get("website", ""),
-                 "; ".join(d.get("phones", [])), d.get("score", ""), d["verified_at"].isoformat()]
+        header = ["email", "business", "country", "region", "city", "website", "phones", "score", "verified_at"]
+        rows = [[d["email"], d.get("business", ""), d.get("country", ""), d.get("region", ""), d.get("city", ""),
+                 d.get("website", ""), "; ".join(d.get("phones", [])), d.get("score", ""), d["verified_at"].isoformat()]
                 for d in db.list_verified(limit=0)]
     else:
-        header = ["business", "state", "city", "website", "emails", "phones", "confidence"]
-        rows = [[d.get("business", ""), d.get("state", ""), d.get("city", ""), d.get("website", ""),
+        header = ["business", "country", "region", "city", "website", "emails", "phones", "confidence"]
+        rows = [[d.get("business", ""), d.get("country", ""), d.get("region", ""), d.get("city", ""), d.get("website", ""),
                  "; ".join(f"{e['address']} ({e['status']})" for e in d.get("emails", [])),
                  "; ".join(d.get("phones", [])), d.get("confidence", "")] for d in db.list_leads(limit=0)]
     with open(args.output, "w", newline="", encoding="utf-8-sig") as f:
         writer = csv.writer(f)
         writer.writerow(header)
-        writer.writerows(rows)
+        writer.writerows(safe_row(r) for r in rows)
     log(f"wrote {len(rows)} {args.what} rows to {args.output}")
     return len(rows)
 
@@ -266,8 +284,10 @@ def main(argv=None):
     sub = p.add_subparsers(dest="command", required=True)
 
     d = sub.add_parser("discover", help="find businesses in an area by category (OpenStreetMap)")
-    d.add_argument("--area", required=True, help="city or region name, e.g. Houston")
-    d.add_argument("--country", help="2-letter country code to disambiguate, e.g. US")
+    d.add_argument("--country", required=True, help="country: an ISO code (US, NG, GB, DE...) or a name")
+    d.add_argument("--region", help="state/province/nation within the country: a name (Texas) or ISO 3166-2 code (US-TX)")
+    d.add_argument("--place", help="optional city or area name to narrow the search, e.g. Ikeja")
+    d.add_argument("--area", dest="place", help=argparse.SUPPRESS)  # older spelling of --place
     d.add_argument("--category", required=True, choices=sorted(CATEGORIES))
     d.add_argument("-o", "--output", default="seeds.csv")
     d.add_argument("--limit", type=int, help="check at most this many businesses")
@@ -281,13 +301,13 @@ def main(argv=None):
     s.add_argument("--exclude-personal", action="store_true", help="drop gmail/yahoo/outlook/etc. addresses")
     s.add_argument("--any-domain", action="store_true",
                    help="keep emails on other domains (default: only the business's own domain)")
-    s.add_argument("--country", default="US", help="2-letter region used to validate phone numbers")
+    s.add_argument("--country", help="country for validating local phone numbers when the seeds lack one (default US)")
     s.add_argument("--min-confidence", choices=["low", "medium", "high"], default="low",
                    help="drop leads below this level (high=own-domain email, medium=other email, low=phone only)")
     s.add_argument("--keep-chains", action="store_true",
                    help="keep chains/franchises (OSM brand tag, or a domain seen 3+ times in the seeds)")
     s.add_argument("--save-db", action="store_true", help="also save leads to MongoDB (SKRAPKIN_MONGO_URI)")
-    s.add_argument("--state", default="", help="label for saved leads, e.g. Texas (used with --save-db)")
+    s.add_argument("--region", default="", help="region label for saved leads when the seeds lack one")
     s.set_defaults(func=cmd_scrape)
 
     v = sub.add_parser("verify", help="verify stored emails with Hunter.io (filters unlikely ones first)")
@@ -311,7 +331,10 @@ def main(argv=None):
     a.set_defaults(func=cmd_audit)
 
     args = p.parse_args(argv)
-    args.func(args)
+    try:
+        args.func(args)
+    except ValueError as e:
+        p.error(str(e))
 
 
 if __name__ == "__main__":

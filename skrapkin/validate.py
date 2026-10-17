@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 import dns.exception
 import dns.resolver
 import phonenumbers
+import tldextract
 
 JUNK_LOCALS = {"noreply", "no-reply", "donotreply", "do-not-reply", "abuse", "postmaster",
                "privacy", "unsubscribe", "mailer-daemon", "bounce", "bounces"}
@@ -19,23 +20,42 @@ JUNK_LOCAL_RE = re.compile(r"^(your|user|name|email|first|last|example|test)(nam
 # Aggregators and social pages are not the business's own site.
 AGGREGATOR_DOMAINS = {"facebook.com", "instagram.com", "yelp.com", "linkedin.com", "twitter.com",
                       "x.com", "tiktok.com", "youtube.com", "yellowpages.com", "mapquest.com",
-                      "google.com", "tripadvisor.com", "bbb.org"}
+                      "google.com", "tripadvisor.com", "bbb.org", "pinterest.com", "vk.com", "weibo.com",
+                      "wa.me", "whatsapp.com", "t.me", "linktr.ee", "business.site", "justdial.com",
+                      "sulekha.com", "indiamart.com", "alibaba.com", "yell.com", "pagesjaunes.fr",
+                      "gelbeseiten.de", "dasoertliche.de", "11880.com", "paginegialle.it",
+                      "paginasamarillas.es", "yellowpages.com.au", "truelocal.com.au", "jiji.ng"}
 CHAIN_MIN_LOCATIONS = 3
 # Organisations that match a trade tag but won't buy supplies for resale or projects.
 NON_BUYER_RE = re.compile(
     r"\b(union|local \d+|local no|training|school|college|university|academy|association|church|"
-    r"benefit|pension|apprentice\w*|institute|foundation|museum|library)\b", re.IGNORECASE)
+    r"benefit|pension|apprentice\w*|institute|foundation|museum|library|mosque|masjid|temple|synagogue|ministry|"
+    r"gewerkschaft|schule|hochschule|universit\w*|verein|kirche|bibliothek|"
+    r"syndicat|[eé]cole|[eé]glise|mus[eé]e|biblioth[eè]que|"
+    r"sindicato|escuela|colegio|universidad|iglesia|museo|biblioteca|escola|igreja|"
+    r"scuola|sindacato|chiesa|muzeum|biblioteka)\b", re.IGNORECASE)
 
 
 def is_non_buyer(name):
     return bool(NON_BUYER_RE.search(name or ""))
 
 
+# Uses the bundled public-suffix snapshot (no network), so acme.co.uk and acme.com.ng resolve to their
+# own registered domain instead of "co.uk". Private suffixes (myshopify.com, blogspot.com...) are
+# included, so each shop on a hosting platform counts as its own site.
+_extract = tldextract.TLDExtract(suffix_list_urls=(), cache_dir=None, include_psl_private_domains=True)
+
+
+def host_of(url_or_host):
+    netloc = urlparse(url_or_host if "//" in url_or_host else "//" + url_or_host).netloc.lower()
+    return netloc.split("@")[-1].split(":")[0].removeprefix("www.")
+
+
 def registered_domain(url_or_host):
-    host = urlparse(url_or_host if "//" in url_or_host else "//" + url_or_host).netloc.lower()
-    host = host.removeprefix("www.")
-    parts = host.split(".")
-    return ".".join(parts[-2:]) if len(parts) >= 2 else host
+    host = host_of(url_or_host)
+    parts = _extract(host)
+    domain = getattr(parts, "top_domain_under_public_suffix", None) or parts.registered_domain
+    return domain or host
 
 
 def is_junk_email(email):
@@ -78,7 +98,8 @@ def chain_domains(seeds):
 
 
 def is_aggregator(url):
-    return registered_domain(url) in AGGREGATOR_DOMAINS
+    host = host_of(url)
+    return any(host == d or host.endswith("." + d) for d in AGGREGATOR_DOMAINS)
 
 
 def confidence(emails_checked, phones, own_domain_email):

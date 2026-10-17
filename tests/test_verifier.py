@@ -28,7 +28,7 @@ def lead(name, site, emails, source=None):
 @pytest.fixture
 def seeded(database):
     database.upsert_lead(lead("Acme", "https://acme.com", "info@acme.com; john.smith@acme.com; "
-                              "owner@gmail.com; xk3j9q2w7z4m@acme.com; sales@othercorp.com"), {"state": "Texas"})
+                              "owner@gmail.com; xk3j9q2w7z4m@acme.com; sales@othercorp.com"), {"country": "US", "region": "Texas"})
     return database
 
 
@@ -85,7 +85,7 @@ def test_budget_caps_lookups_and_leaves_the_rest_unchecked(seeded):
 
 def test_accept_all_domain_is_checked_once(database):
     database.upsert_lead(lead("Acme", "https://acme.com", "info@acme.com; sales@acme.com; john.smith@acme.com"),
-                         {"state": "Texas"})
+                         {"country": "US", "region": "Texas"})
     hunter = FakeHunter({"info@acme.com": "accept_all"})
     stats = run_plan(database, hunter, build_plan(database, Config(), mx=OK), Config(), log=lambda m: None)
     assert hunter.calls == ["info@acme.com"]

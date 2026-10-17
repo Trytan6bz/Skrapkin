@@ -10,7 +10,10 @@ EMAIL_STRICT = re.compile(
     r"^[a-z0-9](?:[a-z0-9._%+-]{0,62}[a-z0-9])?@(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}$")
 ROLE_LOCALS = {"info", "sales", "contact", "hello", "office", "support", "admin", "orders", "service",
                "enquiries", "inquiries", "team", "help", "customerservice", "quotes", "estimating",
-               "billing", "accounting", "marketing", "bids", "purchasing", "wholesale", "store"}
+               "billing", "accounting", "marketing", "bids", "purchasing", "wholesale", "store",
+               "kontakt", "contacto", "contato", "contatto", "ventas", "vendas", "vendite", "vertrieb", "verkauf",
+               "bestellung", "pedidos", "commande", "commandes", "accueil", "bureau", "buero", "ufficio",
+               "oficina", "comercial", "atendimento", "servicio", "kundenservice", "hola", "hallo", "ciao"}
 # Not exhaustive: Hunter flags the rest, but these are free to catch here.
 DISPOSABLE = {"mailinator.com", "guerrillamail.com", "10minutemail.com", "tempmail.com", "yopmail.com",
               "trashmail.com", "throwawaymail.com", "sharklasers.com", "getnada.com", "maildrop.cc",

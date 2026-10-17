@@ -3,24 +3,47 @@
 import re
 from urllib.parse import urljoin, urlparse
 
+import phonenumbers
 from bs4 import BeautifulSoup
+
+from .validate import registered_domain
 
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 OBFUSCATED_RE = re.compile(
     r"([A-Za-z0-9._%+-]+)\s*[\[(]\s*at\s*[\])]\s*([A-Za-z0-9.-]+)\s*[\[(]\s*dot\s*[\])]\s*([A-Za-z]{2,})",
     re.IGNORECASE,
 )
-PHONE_RE = re.compile(r"(?:\+?\d{1,3}[\s.-]?)?\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}")
 
 # Personal mailbox providers: kept by default (small businesses often use them); drop with --exclude-personal.
 FREE_MAIL = {
-    "gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "aol.com",
-    "icloud.com", "live.com", "msn.com", "proton.me", "protonmail.com",
+    "gmail.com", "googlemail.com", "yahoo.com", "ymail.com", "rocketmail.com", "hotmail.com", "outlook.com",
+    "aol.com", "icloud.com", "me.com", "live.com", "msn.com", "proton.me", "protonmail.com", "pm.me",
+    "mail.com", "gmx.com", "gmx.net", "gmx.de", "gmx.at", "web.de", "t-online.de", "freenet.de",
+    "yahoo.co.uk", "yahoo.co.in", "yahoo.co.jp", "yahoo.com.br", "yahoo.com.au", "yahoo.fr", "yahoo.de",
+    "yahoo.es", "yahoo.it", "yahoo.ca", "hotmail.co.uk", "hotmail.fr", "hotmail.de", "hotmail.es",
+    "hotmail.it", "outlook.fr", "outlook.de", "outlook.es", "live.co.uk", "live.fr", "btinternet.com",
+    "sky.com", "orange.fr", "wanadoo.fr", "free.fr", "sfr.fr", "laposte.net", "libero.it", "virgilio.it",
+    "alice.it", "tiscali.it", "mail.ru", "bk.ru", "inbox.ru", "list.ru", "yandex.ru", "yandex.com",
+    "rambler.ru", "qq.com", "163.com", "126.com", "sina.com", "foxmail.com", "naver.com", "daum.net",
+    "hanmail.net", "rediffmail.com", "seznam.cz", "wp.pl", "o2.pl", "interia.pl", "onet.pl", "uol.com.br",
+    "bol.com.br", "terra.com.br", "ig.com.br", "tutanota.com", "tuta.io", "zoho.com", "yopmail.com",
 }
 IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg")
-CONTACT_HINTS = ("contact", "about", "team", "support", "impressum")
+CONTACT_HINTS = (
+    "contact", "about", "team", "support", "impressum",                        # English / German
+    "kontakt", "ueber-uns", "uber-uns", "über-uns", "unternehmen",              # German, Polish, Nordic
+    "contacto", "nosotros", "quienes-somos", "equipo", "empresa",               # Spanish
+    "contato", "sobre", "fale-conosco", "equipe",                               # Portuguese
+    "contatti", "contatto", "chi-siamo", "azienda",                             # Italian
+    "nous-contacter", "a-propos", "qui-sommes-nous", "mentions-legales",        # French
+    "over-ons", "o-nas", "kapcsolat", "yhteystiedot", "iletisim", "hakkimizda",  # Dutch, Slavic, Hungarian, Finnish, Turkish
+    "контакты", "о-нас", "о нас",                                               # Russian
+    "联系", "聯絡", "关于", "關於", "お問い合わせ", "お問合せ", "会社概要", "연락", "문의", "회사소개",
+    "اتصل", "من نحن",
+)
 # Pages listing many branches/partners pollute results with other entities' details.
-SKIP_HINTS = ("location", "store", "branch", "dealer", "franchise", "find-us")
+SKIP_HINTS = ("location", "store", "branch", "dealer", "franchise", "find-us", "standort", "filiale",
+              "sucursal", "tiendas", "lojas", "negozi", "magasins", "succursale", "vestiging")
 
 
 def filter_free_mail(emails, include_personal=True):
@@ -34,9 +57,8 @@ def same_site_emails(emails, site_url):
 
     Free-mail addresses found on the site are kept: small businesses often list them as their contact.
     """
-    host = urlparse(site_url).netloc.lower().removeprefix("www.")
-    return {e for e in emails
-            if (d := e.split("@")[1]) in FREE_MAIL or d == host or host.endswith("." + d) or d.endswith("." + host)}
+    site = registered_domain(site_url)
+    return {e for e in emails if (d := e.split("@")[1]) in FREE_MAIL or registered_domain(d) == site}
 
 
 def extract_emails(html, include_personal=True):
@@ -53,9 +75,15 @@ def extract_emails(html, include_personal=True):
     return sorted(emails)
 
 
-def extract_phones(html):
+def extract_phones(html, region="US"):
+    """Phone numbers in E.164 form, in page order. `region` (ISO country) resolves local formats."""
     text = BeautifulSoup(html, "html.parser").get_text(" ")
-    return sorted({re.sub(r"\s+", " ", p).strip() for p in PHONE_RE.findall(text)})
+    found = []
+    for match in phonenumbers.PhoneNumberMatcher(text, region.upper(), leniency=phonenumbers.Leniency.VALID):
+        number = phonenumbers.format_number(match.number, phonenumbers.PhoneNumberFormat.E164)
+        if number not in found:
+            found.append(number)
+    return found
 
 
 def extract_name(html):

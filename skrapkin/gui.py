@@ -12,7 +12,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from . import config, jobs
-from .discover import US_STATES
+from . import regions as geo
 from .gui_widgets import DataTable, copy_to_clipboard
 from .hunter import HunterClient, HunterError, InvalidKey
 from .verifier import build_plan
@@ -34,6 +34,11 @@ DB_HELP = (
     "• Cloud: create a free cluster at mongodb.com/atlas and paste its connection string "
     "(mongodb+srv://...) here. Your whole team can then share one database."
 )
+
+
+COUNTRY_NAMES = [c["name"] for c in geo.countries()]
+COUNTRY_BY_NAME = {c["name"]: c["code"] for c in geo.countries()}
+ENTIRE_COUNTRY = "Entire country (sample)"
 
 
 def open_path(path):
@@ -154,7 +159,7 @@ class App(tk.Tk):
 
 
 class Filters(ttk.Frame):
-    """Search box plus category/state/status dropdowns that re-run a query as you type."""
+    """Search box plus category/country/region/status dropdowns that re-run a query as you type."""
 
     def __init__(self, parent, on_change, with_status=False):
         super().__init__(parent)
@@ -164,8 +169,17 @@ class Filters(ttk.Frame):
         self.text.pack(side="left", padx=(4, 10))
         self.text.bind("<KeyRelease>", lambda e: debounce(self, self._debounce, 300, on_change))
         self.category = self._combo(["All types"] + list(jobs.CATEGORY_LABELS), 24)
-        self.state = self._combo(["All states"] + US_STATES, 18)
+        self.country = self._combo(["All countries"] + COUNTRY_NAMES, 20)
+        self.country.bind("<<ComboboxSelected>>", lambda e: self._country_changed())
+        self.region = self._combo(["All regions"], 18)
         self.status = self._combo(list(STATUS_FILTERS), 24) if with_status else None
+
+    def _country_changed(self):
+        code = COUNTRY_BY_NAME.get(self.country.get())
+        names = [r["name"] for r in geo.regions(code)] if code else []
+        self.region.config(values=["All regions"] + names)
+        self.region.current(0)
+        self.on_change()
 
     def _combo(self, values, width):
         box = ttk.Combobox(self, state="readonly", values=values, width=width)
@@ -176,9 +190,10 @@ class Filters(ttk.Frame):
 
     def query(self):
         category = jobs.CATEGORY_LABELS.get(self.category.get())
-        state = self.state.get() if self.state.get() in US_STATES else None
+        country = COUNTRY_BY_NAME.get(self.country.get())
+        region = self.region.get() if self.region.get() != "All regions" else None
         status = STATUS_FILTERS.get(self.status.get()) if self.status else None
-        return self.text.get(), category, state, status
+        return self.text.get(), category, country, region, status
 
 
 # ------------------------------------------------------------------------------------------------
@@ -198,17 +213,25 @@ class FindTab(ttk.Frame):
         self.category = ttk.Combobox(form, state="readonly", values=list(jobs.CATEGORY_LABELS))
         self.category.current(0)
         self.category.grid(row=0, column=1, sticky="ew", **pad)
-        ttk.Label(form, text="State").grid(row=1, column=0, sticky="w", **pad)
-        self.area = ttk.Combobox(form, state="readonly", values=US_STATES)
-        self.area.set("Texas")
-        self.area.grid(row=1, column=1, sticky="ew", **pad)
-        ttk.Label(form, text="Max businesses to check").grid(row=2, column=0, sticky="w", **pad)
+        ttk.Label(form, text="Country").grid(row=1, column=0, sticky="w", **pad)
+        self.country = ttk.Combobox(form, state="readonly", values=COUNTRY_NAMES)
+        self.country.set("United States")
+        self.country.bind("<<ComboboxSelected>>", lambda e: self._country_changed())
+        self.country.grid(row=1, column=1, sticky="ew", **pad)
+        ttk.Label(form, text="Region").grid(row=2, column=0, sticky="w", **pad)
+        self.region = ttk.Combobox(form, state="readonly")
+        self.region.grid(row=2, column=1, sticky="ew", **pad)
+        self._country_changed()
+        ttk.Label(form, text="City or area (optional)").grid(row=3, column=0, sticky="w", **pad)
+        self.place = ttk.Entry(form)
+        self.place.grid(row=3, column=1, sticky="ew", **pad)
+        ttk.Label(form, text="Max businesses to check").grid(row=4, column=0, sticky="w", **pad)
         self.max_businesses = ttk.Spinbox(form, from_=10, to=1000, increment=10, width=8)
         self.max_businesses.set(100)
-        self.max_businesses.grid(row=2, column=1, sticky="w", **pad)
-        ttk.Label(form, text="Save CSV in").grid(row=3, column=0, sticky="w", **pad)
+        self.max_businesses.grid(row=4, column=1, sticky="w", **pad)
+        ttk.Label(form, text="Save CSV in").grid(row=5, column=0, sticky="w", **pad)
         row = ttk.Frame(form)
-        row.grid(row=3, column=1, sticky="ew", **pad)
+        row.grid(row=5, column=1, sticky="ew", **pad)
         row.columnconfigure(0, weight=1)
         self.folder = ttk.Entry(row)
         self.folder.insert(0, str(jobs.default_output_dir()))
@@ -256,6 +279,12 @@ class FindTab(ttk.Frame):
                                on_double_click=self._open_site)
         self.table.pack(fill="both", expand=True, padx=10, pady=(0, 8))
 
+    def _country_changed(self):
+        code = COUNTRY_BY_NAME.get(self.country.get())
+        names = [r["name"] for r in geo.regions(code)] if code else []
+        self.region.config(values=[ENTIRE_COUNTRY] + names)
+        self.region.set(ENTIRE_COUNTRY)
+
     def _browse(self):
         chosen = filedialog.askdirectory(initialdir=self.folder.get() or str(Path.home()))
         if chosen:
@@ -275,8 +304,10 @@ class FindTab(ttk.Frame):
 
     def _settings(self):
         return jobs.Settings(
-            category=jobs.CATEGORY_LABELS[self.category.get()], area=self.area.get(),
-            max_businesses=self._max(),
+            category=jobs.CATEGORY_LABELS[self.category.get()],
+            country=COUNTRY_BY_NAME.get(self.country.get(), ""),
+            region="" if self.region.get() == ENTIRE_COUNTRY else self.region.get(),
+            place=self.place.get(), max_businesses=self._max(),
             output_dir=Path(self.folder.get()) if self.folder.get().strip() else None,
             exclude_personal=not self.personal.get(), keep_chains=self.chains.get(),
             min_confidence=jobs.CONFIDENCE_LABELS[self.confidence.get()])
@@ -366,7 +397,7 @@ class LeadsTab(ttk.Frame):
         self.filters = Filters(self, self.refresh, with_status=True)
         self.filters.pack(fill="x", padx=10, pady=8)
         self.table = DataTable(
-            self, [("business", "Business", 200), ("state", "State", 90), ("city", "City", 90),
+            self, [("business", "Business", 200), ("country", "Country", 110), ("region", "Region", 100), ("city", "City", 90),
                    ("website", "Website", 190), ("emails", "Emails (status)", 320),
                    ("phones", "Phones", 130), ("confidence", "Confidence", 80)],
             menu_items=[("Copy email addresses", self._copy_emails), ("Open website", self._open_site),
@@ -387,7 +418,7 @@ class LeadsTab(ttk.Frame):
         if not self.app.db:
             self.count.config(text="Connect the database in Settings to see saved leads.")
             return
-        text, category, state, status = self.filters.query()
+        text, category, country, region, status = self.filters.query()
         db = self.app.db
 
         def show(leads):
@@ -395,7 +426,8 @@ class LeadsTab(ttk.Frame):
             for lead in leads:
                 if status and not any(e["status"] == status for e in lead.get("emails", [])):
                     continue
-                rows.append((lead["key"], (lead.get("business", ""), lead.get("state", ""), lead.get("city", ""),
+                rows.append((lead["key"], (lead.get("business", ""), geo.country_name(lead.get("country", "")) if lead.get("country") else "",
+                                           lead.get("region", ""), lead.get("city", ""),
                                            lead.get("website", ""), email_summary(lead),
                                            "; ".join(lead.get("phones", [])), lead.get("confidence", "")),
                              lead, ""))
@@ -404,7 +436,7 @@ class LeadsTab(ttk.Frame):
             self.count.config(text=f"Showing {len(rows)} leads  ·  {stats['leads']} saved in total, "
                                    f"{stats['verified']} verified emails")
 
-        self.app.run_bg(lambda: db.list_leads(text, category, state), ok=show)
+        self.app.run_bg(lambda: db.list_leads(text, category, country, region), ok=show)
 
     def _copy_emails(self):
         addresses = [e["address"] for lead in self.table.selected() for e in lead.get("emails", [])]
@@ -640,8 +672,8 @@ class VerifiedTab(ttk.Frame):
         self.filters = Filters(self, self.refresh)
         self.filters.pack(fill="x", padx=10, pady=8)
         self.table = DataTable(
-            self, [("email", "Email", 240), ("business", "Business", 200), ("state", "State", 90),
-                   ("city", "City", 90), ("website", "Website", 190), ("phones", "Phones", 130),
+            self, [("email", "Email", 240), ("business", "Business", 200), ("country", "Country", 110),
+                   ("region", "Region", 100), ("city", "City", 90), ("website", "Website", 190), ("phones", "Phones", 130),
                    ("score", "Score", 55), ("verified", "Verified", 130)],
             menu_items=[("Copy email addresses", self._copy_selected), ("Open website", self._open_site),
                         ("Remove from verified list", self._delete)],
@@ -662,16 +694,18 @@ class VerifiedTab(ttk.Frame):
         if not self.app.db:
             self.count.config(text="Connect the database in Settings to see verified emails.")
             return
-        text, category, state, _ = self.filters.query()
+        text, category, country, region, _ = self.filters.query()
 
         def show(docs):
             self.table.set_rows([
-                (d["_id"], (d["email"], d.get("business", ""), d.get("state", ""), d.get("city", ""),
+                (d["_id"], (d["email"], d.get("business", ""),
+                            geo.country_name(d.get("country", "")) if d.get("country") else "",
+                            d.get("region", ""), d.get("city", ""),
                             d.get("website", ""), "; ".join(d.get("phones", [])), d.get("score", ""),
                             d["verified_at"].strftime("%Y-%m-%d %H:%M")), d, "") for d in docs])
             self.count.config(text=f"{len(docs)} verified emails")
 
-        self.app.run_bg(lambda: self.app.db.list_verified(text, category, state), ok=show)
+        self.app.run_bg(lambda: self.app.db.list_verified(text, category, country, region), ok=show)
 
     def _copy_selected(self):
         copy_to_clipboard(self, "\n".join(d["email"] for d in self.table.selected()))

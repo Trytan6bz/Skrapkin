@@ -3,7 +3,7 @@ from skrapkin.extract import contact_links, extract_emails, extract_name, extrac
 HTML = """
 <html><head><title>Home | Acme Widgets</title></head><body>
 <a href="mailto:Sales@acme.com?subject=hi">Email</a>
-<p>Or reach owner@gmail.com, or support [at] acme [dot] com. Call (555) 123-4567.</p>
+<p>Or reach owner@gmail.com, or support [at] acme [dot] com. Call (281) 555-0100.</p>
 <img src="logo@2x.png">
 <a href="/contact-us">Contact</a><a href="https://other.com/about">Other</a>
 </body></html>
@@ -19,7 +19,7 @@ def test_emails_exclude_personal_on_request():
 
 
 def test_phone_and_name():
-    assert extract_phones(HTML) == ["(555) 123-4567"]
+    assert extract_phones(HTML) == ["+12815550100"]
     assert extract_name(HTML) == "Acme Widgets"
 
 

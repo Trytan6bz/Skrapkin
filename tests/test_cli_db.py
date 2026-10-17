@@ -29,7 +29,7 @@ def wired(database, monkeypatch, tmp_path):
     FakeClient.calls = []
     database.upsert_lead({"business": "Acme", "website": "https://acme.com", "category": "building",
                           "emails": "info@acme.com; xk3j9q2w7z4m@acme.com; sales@othercorp.com",
-                          "phones": ""}, {"state": "Texas"})
+                          "phones": ""}, {"country": "US", "region": "Texas"})
     return database
 
 
@@ -58,7 +58,7 @@ def test_verify_without_a_key_exits_with_a_clear_message(wired, monkeypatch):
 
 
 def test_export_writes_excel_friendly_csv(wired, tmp_path):
-    wired.upsert_verified("info@acme.com", {"business": "Acme", "state": "Texas"}, {"score": 90})
+    wired.upsert_verified("info@acme.com", {"business": "Acme", "country": "US", "region": "Texas"}, {"score": 90})
     out = tmp_path / "v.csv"
     assert cli.cmd_export(cli.argparse.Namespace(what="verified", output=str(out)), log=lambda m: None) == 1
     rows = list(csv.reader(open(out, encoding="utf-8-sig")))

@@ -8,4 +8,4 @@ __pycache__/
 .env
 
 # local data and secrets
-data/
+/data/

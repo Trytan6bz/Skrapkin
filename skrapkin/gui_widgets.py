@@ -4,6 +4,8 @@ import csv
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
+from .csvsafe import safe_row
+
 
 class DataTable(ttk.Frame):
     """Treeview with scrollbars, click-to-sort headers, right-click actions and CSV export.
@@ -111,7 +113,7 @@ class DataTable(ttk.Frame):
         with open(path, "w", newline="", encoding="utf-8-sig") as f:
             writer = csv.writer(f)
             writer.writerow([c[1] for c in self.columns])
-            writer.writerows(rows)
+            writer.writerows(safe_row(r) for r in rows)
         messagebox.showinfo("Export", f"Saved {len(rows)} rows to:\n{path}")
         return path
 

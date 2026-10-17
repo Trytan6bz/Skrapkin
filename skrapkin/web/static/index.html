@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SKrapkin</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <span class="logo">SKrapkin</span>
+      <span class="tagline">Find. Filter. Verify.</span>
+    </div>
+    <div class="pills">
+      <span id="pill-db" class="pill pill-wait">Database…</span>
+      <span id="pill-hunter" class="pill pill-wait">Hunter…</span>
+    </div>
+    <nav id="tabs" class="tabs" aria-label="Sections">
+      <button data-tab="find" class="active">Find leads</button>
+      <button data-tab="leads">Leads</button>
+      <button data-tab="verify">Verify emails</button>
+      <button data-tab="verified">Verified results</button>
+      <button data-tab="settings">Settings</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- FIND -->
+    <section id="tab-find" class="tab active">
+      <div class="grid2">
+        <div class="card">
+          <h2>1. What are you looking for?</h2>
+          <label>Type of business
+            <select id="find-category"></select>
+          </label>
+          <label>Country
+            <select id="find-country"></select>
+          </label>
+          <label>Region
+            <select id="find-region"></select>
+          </label>
+          <label>City or area <span class="muted">(optional)</span>
+            <input id="find-place" type="text" maxlength="80" placeholder="e.g. Ikeja, Manchester, Bavaria" autocomplete="off">
+          </label>
+          <label>Max businesses to check
+            <input id="find-max" type="number" min="1" max="1000" value="100">
+          </label>
+          <label>Keep leads that have
+            <select id="find-confidence"></select>
+          </label>
+        </div>
+        <div class="card">
+          <h2>2. Options</h2>
+          <label class="check"><input id="find-personal" type="checkbox" checked> Include Gmail / Yahoo / Outlook addresses</label>
+          <label class="check"><input id="find-chains" type="checkbox"> Include big chains and franchises</label>
+          <label class="check"><input id="find-save" type="checkbox" checked> Save leads to the database</label>
+          <label class="check"><input id="find-verify" type="checkbox"> Verify new emails with Hunter when finished <span class="muted">(uses credits)</span></label>
+          <p class="muted small">Sites that disallow crawling in <code>robots.txt</code> are skipped, and requests are rate-limited.</p>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button id="find-start" class="primary">Find leads</button>
+        <button id="find-stop" disabled>Stop</button>
+        <span id="find-counter" class="muted"></span>
+        <span class="spacer"></span>
+        <a id="find-download" class="button" hidden>Download CSV</a>
+      </div>
+      <progress id="find-progress" value="0" max="1"></progress>
+      <p id="find-status" class="status">Ready.</p>
+      <div id="find-table"></div>
+      <details class="logbox"><summary>Activity log</summary><pre id="find-log"></pre></details>
+    </section>
+
+    <!-- LEADS -->
+    <section id="tab-leads" class="tab">
+      <div class="filters" id="leads-filters">
+        <input id="leads-q" type="search" placeholder="Search business, website, email, city…" aria-label="Search leads">
+        <select id="leads-category" aria-label="Business type"></select>
+        <select id="leads-country" aria-label="Country"></select>
+        <select id="leads-region" aria-label="Region"></select>
+        <select id="leads-status" aria-label="Email status"></select>
+      </div>
+      <div id="leads-table"></div>
+      <div class="actions">
+        <span id="leads-count" class="muted"></span>
+        <span class="spacer"></span>
+        <button id="leads-copy">Copy emails</button>
+        <button id="leads-delete" class="danger">Delete selected</button>
+        <a id="leads-export" class="button">Export CSV</a>
+        <button id="leads-refresh">Refresh</button>
+      </div>
+    </section>
+
+    <!-- VERIFY -->
+    <section id="tab-verify" class="tab">
+      <div class="grid2">
+        <div class="card">
+          <h2>1. Hunter.io account</h2>
+          <label>API key
+            <input id="hunter-key" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your key">
+          </label>
+          <div class="row">
+            <button id="hunter-save" class="primary">Save &amp; test</button>
+            <button id="hunter-remove">Remove key</button>
+          </div>
+          <p id="hunter-status" class="status small"></p>
+          <p class="small"><a href="https://hunter.io/api-keys" target="_blank" rel="noopener noreferrer">Find your key at hunter.io/api-keys</a>. Testing is free and uses no credits.</p>
+        </div>
+        <div class="card">
+          <h2>2. Keep costs down</h2>
+          <label>Only send emails that score at least
+            <input id="verify-threshold" type="number" min="0" max="100" step="5">
+          </label>
+          <label>Never use more than this many Hunter lookups in one run
+            <input id="verify-budget" type="number" min="1" max="10000" step="10">
+          </label>
+          <div class="row"><button id="verify-save-settings">Save settings</button></div>
+          <p class="muted small">Clearly fake addresses, dead domains, webmail, and emails already checked are skipped for free.</p>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button id="verify-preview">Preview (free)</button>
+        <button id="verify-start" class="primary">Verify now</button>
+        <button id="verify-stop" disabled>Stop</button>
+      </div>
+      <progress id="verify-progress" value="0" max="1"></progress>
+      <p id="verify-summary" class="status">Preview shows exactly which emails would be sent to Hunter, and why the rest are skipped.</p>
+      <div id="verify-table"></div>
+    </section>
+
+    <!-- VERIFIED -->
+    <section id="tab-verified" class="tab">
+      <div class="filters">
+        <input id="verified-q" type="search" placeholder="Search email, business, website, city…" aria-label="Search verified emails">
+        <select id="verified-category" aria-label="Business type"></select>
+        <select id="verified-country" aria-label="Country"></select>
+        <select id="verified-region" aria-label="Region"></select>
+      </div>
+      <div id="verified-table"></div>
+      <div class="actions">
+        <span id="verified-count" class="muted"></span>
+        <span class="spacer"></span>
+        <button id="verified-copy-all">Copy all emails</button>
+        <button id="verified-delete" class="danger">Remove selected</button>
+        <a id="verified-export" class="button">Export CSV</a>
+        <button id="verified-refresh">Refresh</button>
+      </div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section id="tab-settings" class="tab">
+      <div class="card narrow">
+        <h2>Database (MongoDB)</h2>
+        <p id="db-env-note" class="small muted" hidden>The connection address is set by the <code>SKRAPKIN_MONGO_URI</code> environment variable (Docker Compose does this). Edit <code>.env</code> and restart to change it.</p>
+        <label>Connection address
+          <input id="db-uri" type="password" autocomplete="off" spellcheck="false" placeholder="mongodb://localhost:27017">
+        </label>
+        <label class="check"><input id="db-show" type="checkbox"> Show address</label>
+        <label>Database name
+          <input id="db-name" type="text" maxlength="60">
+        </label>
+        <div class="row"><button id="db-save" class="primary">Save &amp; connect</button></div>
+        <p id="db-result" class="status small"></p>
+        <p class="muted small">Local: install MongoDB Community, or run <code>docker compose up -d</code>. Cloud: create a free cluster at mongodb.com/atlas and paste its <code>mongodb+srv://…</code> string. A team can share one database.</p>
+      </div>
+      <div class="card narrow">
+        <h2>About</h2>
+        <p class="small">SKrapkin <span id="about-version"></span> is a research tool. Use it responsibly: it honours <code>robots.txt</code> and rate-limits requests, but you are responsible for complying with site terms and with anti-spam and privacy laws. See the README disclaimer.</p>
+        <p class="small muted">CSV files from searches are saved in <code id="about-output"></code> on the machine running SKrapkin.</p>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="confirm">
+    <form method="dialog">
+      <h3 id="confirm-title"></h3>
+      <p id="confirm-body"></p>
+      <div class="row end">
+        <button value="cancel">Cancel</button>
+        <button value="ok" class="primary" id="confirm-ok">Continue</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toasts" aria-live="polite"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

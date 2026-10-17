@@ -5,6 +5,7 @@
 <p align="center">
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-7df9ff?style=flat-square"></a>
   <img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-7df9ff?style=flat-square">
+  <img alt="249 countries" src="https://img.shields.io/badge/coverage-249%20countries-7df9ff?style=flat-square">
   <img alt="MongoDB" src="https://img.shields.io/badge/database-MongoDB-7df9ff?style=flat-square">
   <img alt="Docker Compose" src="https://img.shields.io/badge/docker-compose-7df9ff?style=flat-square">
   <img alt="Research use" src="https://img.shields.io/badge/purpose-research-b45ced?style=flat-square">
@@ -12,12 +13,19 @@
 
 # SKrapkin
 
-SKrapkin finds **publicly listed business contact details** for B2B marketing research, scores them, and
-verifies only the emails that are likely to be real, so you spend as few paid verification credits as possible.
+SKrapkin finds **publicly listed business contact details anywhere in the world** for B2B marketing research,
+scores them, and verifies only the emails that are likely to be real, so you spend as few paid verification
+credits as possible.
 
 It is built for a specific job: a marketplace owner who wants to reach **businesses that buy in bulk**
 (contractors and building suppliers, clothing retailers, toy and gift shops, and similar) and needs a clean list
 of contacts without paying to verify every junk address a scraper turns up.
+
+```bash
+cp .env.example .env     # set MONGO_PASSWORD
+docker compose up -d --build
+# open http://localhost:8080
+```
 
 > [!IMPORTANT]
 > **Research tool. Read the [disclaimer](#disclaimer-and-responsible-use) before you use it.**
@@ -34,7 +42,8 @@ of contacts without paying to verify every junk address a scraper turns up.
   - [Option A: Docker Compose (recommended)](#option-a-docker-compose-recommended)
   - [Option B: Run with Python](#option-b-run-with-python)
   - [Connect Hunter.io](#connect-hunterio)
-- [Using the desktop app](#using-the-desktop-app)
+- [Using the web interface](#using-the-web-interface)
+- [Sharing it with a team](#sharing-it-with-a-team)
 - [Command line reference](#command-line-reference)
 - [How it keeps verification costs down](#how-it-keeps-verification-costs-down)
 - [Data model](#data-model)
@@ -51,16 +60,16 @@ of contacts without paying to verify every junk address a scraper turns up.
 
 | Stage | What happens |
 |---|---|
-| **Discover** | Finds businesses in a US state by category (building materials and contractors, clothing retailers, toy and gift shops) using [OpenStreetMap](https://www.openstreetmap.org) data through the Overpass API. |
-| **Scrape** | Visits each business's own website (homepage plus up to three contact, about, team or support pages) and collects public emails and phone numbers. It reads `mailto:` links, visible text, and `name [at] domain [dot] com` style obfuscation. |
-| **Clean** | Drops chains and franchises, non-buyers (unions, schools, associations and similar), social and listing pages, placeholder and system addresses, emails on dead domains, and invalid phone numbers. Phone numbers are normalised to E.164, so two formats of the same number count once. |
+| **Discover** | Finds businesses by category in **any of 249 countries**, optionally narrowed to a region (state, province, nation, prefecture...) and a city or area, using [OpenStreetMap](https://www.openstreetmap.org) data through the Overpass API. Built-in categories: building materials and contractors, clothing retailers, toy and gift shops. |
+| **Scrape** | Visits each business's own website (homepage plus up to three contact, about, team or support pages, recognised in about 15 languages) and collects public emails and phone numbers. It reads `mailto:` links, visible text, and `name [at] domain [dot] com` style obfuscation. |
+| **Clean** | Drops chains and franchises, non-buyers (unions, schools, associations and similar, in several languages), social and listing pages, placeholder and system addresses, emails on dead domains, and invalid phone numbers. Phone numbers are read in the local format of the country you searched and normalised to E.164, so two formats of the same number count once. |
 | **Store** | Saves every lead to **MongoDB** as it is found, merging repeat searches instead of duplicating them. |
 | **Filter** | Scores each email locally for how likely it is to be a real, reachable business mailbox. Unlikely ones are never sent to a paid service. |
 | **Verify** | Checks the survivors with the **[Hunter.io](https://hunter.io) Email Verifier**. Only emails Hunter reports as `valid` go into the separate **verified results** collection. |
-| **Export** | Exports leads or verified emails to CSV (opens correctly in Excel). |
+| **Export** | Exports leads or verified emails to CSV (opens correctly in Excel, and safe against formula injection). |
 
-It is a pure **Python** tool: a **desktop app** (Tk window, five tabs) and a **command-line tool**, with the
-database running in **Docker Compose**.
+It is a pure **Python** tool with three ways in: a **web interface** (the default with Docker), a **desktop
+window**, and a **command line**. The database runs in **Docker Compose**.
 
 ### What it deliberately does not do
 
@@ -69,8 +78,8 @@ database running in **Docker Compose**.
   Personal data about private shoppers is not something a public scraper should gather, and there is no public list
   of "people who buy online" anyway.
 - It **does not guess or generate email addresses** (no `first.last@company.com` pattern guessing).
-- It **does not verify webmail addresses** (Gmail, Yahoo, Outlook and similar) with a paid service, because a mailbox
-  check cannot confirm them. They stay in your leads, marked `webmail`.
+- It **does not verify webmail addresses** (Gmail, Yahoo, Outlook, GMX, Mail.ru and similar) with a paid service,
+  because a mailbox check cannot confirm them. They stay in your leads, marked `webmail`.
 
 ---
 
@@ -109,7 +118,7 @@ flowchart LR
   or misuse. This notice sits alongside the [MIT License](LICENSE), which governs your rights and the warranty
   disclaimer in full.
 - **You alone are responsible** for how you use it and for complying with the laws, regulations, and terms of
-  service that apply to you and to the sites and services you touch.
+  service that apply to you and to the sites and services you touch, in every country you search.
 - Nothing in this repository is legal advice. If you plan commercial outreach, talk to a qualified lawyer.
 
 **Things you are responsible for checking before you run it or email anyone:**
@@ -117,9 +126,9 @@ flowchart LR
 - **Website terms of service and `robots.txt`.** SKrapkin honours `robots.txt`, but a site's terms may still restrict
   automated access.
 - **Anti-spam and privacy law** where you and your recipients are, for example CAN-SPAM (US), GDPR and PECR
-  (EU/UK), CASL (Canada). Business email is treated more permissively in some places and far more strictly in
-  others. Include a real sender identity, a physical address where required, and a working opt-out, and honour
-  opt-outs promptly.
+  (EU/UK), CASL (Canada), POPIA (South Africa), NDPA (Nigeria), LGPD (Brazil), and the many others. Business email is
+  treated more permissively in some places and far more strictly in others. Include a real sender identity, a
+  physical address where required, and a working opt-out, and honour opt-outs promptly.
 - **Hunter.io's terms and your plan limits.** Verification uses your own key and your own credits.
 - **OpenStreetMap's licence.** OSM data is © OpenStreetMap contributors and available under the
   [ODbL](https://www.openstreetmap.org/copyright). If you publish or share a database derived from it, you must
@@ -139,8 +148,7 @@ Hunter.io API key**. Discovery and scraping work without the database or a Hunte
 
 ### Option A: Docker Compose (recommended)
 
-Docker Compose runs MongoDB for you, with a password and a localhost-only port, and gives you an optional
-containerised command line. This is the easiest way to get a database.
+One command starts MongoDB (password-protected, localhost-only) and the web interface.
 
 **Requirements:** [Docker](https://docs.docker.com/get-docker/) with Compose v2 (`docker compose version`).
 
@@ -152,22 +160,44 @@ cd leads-scrapper
 cp .env.example .env
 #    edit .env, or generate a password:  openssl rand -hex 16
 
-# 2. Start the database (bound to 127.0.0.1 only; data persists in a Docker volume)
-docker compose up -d
+# 2. Build and start everything (first run builds the image, so it takes a minute)
+docker compose up -d --build
 ```
 
-**Run the command line inside Docker.** Files are read and written in `./data`:
+Open **http://localhost:8080**. The status pills at the top should read *Database: connected*.
+Search results are kept in a Docker volume and downloaded from the page (the **Download CSV** button on the
+Find leads tab, and **Export CSV** on the Leads and Verified results tabs).
+
+**Housekeeping**
 
 ```bash
-docker compose run --rm skrapkin discover --area Ohio --country US --category toys --limit 50 -o seeds.csv
-docker compose run --rm skrapkin scrape seeds.csv -o leads.csv --save-db --state Ohio
+docker compose ps                  # status (both services should be "healthy")
+docker compose logs -f web         # web interface logs
+docker compose down                # stop; your data is kept
+docker compose down -v             # stop AND DELETE all stored leads, verified emails, and settings
+```
+
+**What runs**
+
+| Service | Purpose | Port (this computer only) |
+|---|---|---|
+| `mongo` | The database, with a password from `.env`. | `27017` (`MONGO_PORT`) |
+| `web` | The web interface. | `8080` (`WEB_PORT`) |
+| `skrapkin` | Optional command line (profile `cli`). | none |
+
+**Optional: the command line inside Docker.** Create the data folder first so Docker doesn't create it as root:
+
+```bash
+mkdir -p data
+docker compose run --rm skrapkin discover --country DE --region Bayern --category clothing --limit 50 -o seeds.csv
+docker compose run --rm skrapkin scrape seeds.csv -o leads.csv --save-db
 docker compose run --rm skrapkin verify --preview     # free: shows what would be sent to Hunter
 docker compose run --rm skrapkin verify --yes         # spends Hunter credits (needs HUNTER_API_KEY in .env)
 docker compose run --rm skrapkin export verified -o verified.csv
 ```
 
-**Use the desktop app with the Docker database.** Run the app with Python (Option B), open
-**Settings**, and enter:
+**Use the desktop window with the Docker database.** Run the window with Python (Option B), open **Settings**, and
+enter:
 
 ```
 mongodb://skrapkin:YOUR_PASSWORD@localhost:27017/?authSource=admin
@@ -175,31 +205,9 @@ mongodb://skrapkin:YOUR_PASSWORD@localhost:27017/?authSource=admin
 
 (If you changed `MONGO_USER` or `MONGO_PORT` in `.env`, use those.)
 
-**Linux only, experimental: the window inside Docker.** The `gui` profile shows the desktop window through X11:
-
-```bash
-xhost +local:docker
-docker compose run --rm gui
-```
-
-If no window appears (Wayland setups vary), run the app from source (Option B) instead.
-
-**Housekeeping**
-
-```bash
-docker compose ps                  # status
-docker compose logs -f mongo       # database logs
-docker compose down                # stop; your data is kept
-docker compose down -v             # stop AND DELETE all stored leads and verified emails
-```
-
 ### Option B: Run with Python
 
-**Requirements:** Python 3.10 or newer, and Tk.
-
-- Windows and macOS: Tk is included with the python.org installer.
-- Debian/Ubuntu: `sudo apt install python3-tk`
-- Fedora: `sudo dnf install python3-tkinter`
+**Requirements:** Python 3.10 or newer. The desktop window also needs Tk.
 
 ```bash
 git clone https://github.com/Trytan6bz/leads-scrapper.git
@@ -207,44 +215,87 @@ cd leads-scrapper
 python3 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-python run_gui.py
 ```
 
-Then connect a database in the **Settings** tab, either:
+Then pick an interface:
 
-- the Docker one from Option A, or
+```bash
+python -m skrapkin.web             # web interface at http://localhost:8080
+python run_gui.py                  # desktop window (needs Tk, see below)
+python -m skrapkin.cli --help      # command line
+```
+
+Tk is included with the python.org installers for Windows and macOS. On Debian/Ubuntu run
+`sudo apt install python3-tk`; on Fedora run `sudo dnf install python3-tkinter`.
+
+Connect a database in **Settings**, either:
+
+- the Docker one from Option A (`docker compose up -d mongo`, then use the address above), or
 - a free **[MongoDB Atlas](https://www.mongodb.com/atlas)** cluster (paste its `mongodb+srv://...` connection
   string; a whole team can share one), or
 - a local [MongoDB Community](https://www.mongodb.com/try/download/community) install (default address
   `mongodb://localhost:27017`).
 
-The app works without a database for finding leads (CSV files only), but the Leads, Verify and Verified Results
-tabs need one.
+Finding leads works without a database (CSV files only), but the Leads, Verify and Verified Results tabs need one.
 
 ### Connect Hunter.io
 
 1. Create an account at [hunter.io](https://hunter.io) and copy your API key from
    [hunter.io/api-keys](https://hunter.io/api-keys).
-2. In the app, open **Verify Emails**, paste the key, and click **Save & test**. The test calls Hunter's free
+2. In the app, open **Verify emails**, paste the key, and click **Save & test**. The test calls Hunter's free
    account endpoint (no credits used) and shows your plan and remaining verifications.
-3. For Docker or headless use, set `HUNTER_API_KEY` in `.env` (or your shell) instead.
+3. For Docker or headless use, set `HUNTER_API_KEY` in `.env` (or your shell) instead. This is the preferred way.
 
-**Where the key is stored:** in your operating system's keychain (Windows Credential Manager, macOS Keychain, or the
-Linux Secret Service) when one is available. If there isn't one, it falls back to
-`~/.skrapkin/secrets.json` with owner-only permissions on Linux and macOS, which is **plaintext**, so protect
-that folder. The key is sent in an `X-API-KEY` header, never in a URL.
+**Where a saved key lives:** in your operating system's keychain (Windows Credential Manager, macOS Keychain, or the
+Linux Secret Service) when one is available. If there isn't one, as in Docker, it falls back to a file with
+owner-only permissions (`~/.skrapkin/secrets.json`, or inside the `skrapkin-config` Docker volume), which is
+**plaintext**, so protect it. The key is sent to Hunter in an `X-API-KEY` header, never in a URL.
 
 ---
 
-## Using the desktop app
+## Using the web interface
 
 | Tab | What you do there |
 |---|---|
-| **Find Leads** | Pick a business type and a state, cap how many businesses to check, and choose what to keep. Results appear in a table as they are found. Optionally save to the database and verify automatically afterwards. |
-| **Leads** | Browse every saved lead. Search as you type, filter by type, state, or email status, click a heading to sort, right-click to copy emails or open the website, and export to CSV. |
-| **Verify Emails** | Save your Hunter key, set your cost controls, then **Preview (free)** to see exactly which emails would be sent and why the rest are skipped. **Verify now** shows how many credits it will use and asks you to confirm. |
-| **Verified Results** | The separate list of emails Hunter confirmed as valid. Search, filter, copy all addresses, remove entries, or export to CSV. |
+| **Find leads** | Pick a business type, a **country**, an optional **region**, and an optional **city or area**. Cap how many businesses to check and choose what to keep. Results stream into a table as they are found. Optionally save to the database and verify automatically afterwards. |
+| **Leads** | Browse every saved lead. Search as you type, filter by type, country, region, or email status, click a heading to sort, tick rows to copy their emails or delete them, and export to CSV. |
+| **Verify emails** | Save your Hunter key, set your cost controls, then **Preview (free)** to see exactly which emails would be sent and why the rest are skipped. **Verify now** shows how many credits it will use and asks you to confirm. |
+| **Verified results** | The separate list of emails Hunter confirmed as valid. Search, filter, copy all addresses, remove entries, or export to CSV. |
 | **Settings** | MongoDB connection and database name. |
+
+**Choosing where to search.** The region list comes from ISO 3166-2 (US states, Canadian provinces, UK nations,
+German Länder, Nigerian states, Indian states, Japanese prefectures, and so on, for every country that defines
+them). Use **City or area** to narrow further, for example *Ikeja* inside *Lagos*, or *Manchester* inside
+*England*. Leaving the region empty searches the whole country, which returns a **sample**, not everything.
+
+The desktop window (`python run_gui.py`) has the same five tabs and the same options.
+
+---
+
+## Sharing it with a team
+
+By default the web interface answers only on your own computer, and Docker publishes it on `127.0.0.1` only.
+It exposes your leads and can spend your Hunter credits, so treat any change to that seriously.
+
+Built-in protections:
+
+- **Host check.** Requests whose `Host` header isn't `localhost`, `127.0.0.1` or `[::1]` are refused (this blocks
+  DNS-rebinding attacks). Add hostnames people will use with `SKRAPKIN_ALLOWED_HOSTS`.
+- **Cross-site protection.** Every change must carry a custom header that other websites cannot send from a
+  visitor's browser.
+- **Strict content security policy.** The page loads no external scripts, styles, or fonts, and everything scraped
+  from websites is displayed as plain text, never as HTML.
+- **Optional password.** Set `SKRAPKIN_WEB_PASSWORD` (and optionally `SKRAPKIN_WEB_USER`, default `skrapkin`) to
+  require HTTP Basic sign-in for everything except the health check.
+
+To let colleagues connect over a network:
+
+1. Set a long `SKRAPKIN_WEB_PASSWORD` and the hostname in `SKRAPKIN_ALLOWED_HOSTS` in `.env`.
+2. Change the web port mapping in `docker-compose.yml` from `127.0.0.1:${WEB_PORT:-8080}` to `${WEB_PORT:-8080}`.
+3. **Put it behind HTTPS** (a reverse proxy such as Caddy or nginx, or a VPN). HTTP Basic sign-in sent over plain
+   HTTP is not encrypted. Do not expose it directly to the internet.
+
+Alternatively, point each person's own copy at one shared MongoDB Atlas database.
 
 ---
 
@@ -254,21 +305,24 @@ Run as `python -m skrapkin.cli <command>` (or `docker compose run --rm skrapkin 
 
 | Command | Purpose | Key options |
 |---|---|---|
-| `discover` | Find businesses in an area from OpenStreetMap and write a seeds CSV. | `--area` (state or place), `--country US`, `--category building\|clothing\|toys`, `--limit N`, `-o FILE` |
-| `scrape SEEDS` | Collect contacts from the seeds' websites and write a leads CSV. | `--save-db`, `--state NAME`, `--min-confidence low\|medium\|high`, `--exclude-personal`, `--keep-chains`, `--any-domain`, `--delay S`, `--max-pages N`, `--country US` |
+| `discover` | Find businesses and write a seeds CSV (which records the country and region). | `--country` (required: ISO code like `NG` or a name), `--region` (name or ISO 3166-2 code, e.g. `Lagos` or `NG-LA`), `--place` (city or area), `--category building\|clothing\|toys`, `--limit N`, `-o FILE` |
+| `scrape SEEDS` | Collect contacts from the seeds' websites and write a leads CSV. | `--save-db`, `--min-confidence low\|medium\|high`, `--exclude-personal`, `--keep-chains`, `--any-domain`, `--delay S`, `--max-pages N`, `--country` (phone format fallback), `--region` (label fallback) |
 | `verify` | Filter stored emails locally, then verify the survivors with Hunter. | `--preview` (free), `--yes`, `--min-likelihood 0-100`, `--max-lookups N` |
 | `export {leads,verified}` | Write stored leads or verified emails to CSV. | `-o FILE` |
 | `audit FILE` | Sample leads for manual review, then score the reviewed sample to measure real precision. | `-n SIZE`, `--score` |
 
-Example, end to end:
+Examples:
 
 ```bash
-python -m skrapkin.cli discover --area Texas --country US --category building --limit 100 -o seeds.csv
-python -m skrapkin.cli scrape seeds.csv -o leads.csv --save-db --state Texas --min-confidence medium
+python -m skrapkin.cli discover --country NG --region Lagos --place Ikeja --category clothing --limit 100 -o seeds.csv
+python -m skrapkin.cli discover --country GB --region England --place Manchester --category toys -o seeds.csv
+python -m skrapkin.cli scrape seeds.csv -o leads.csv --save-db --min-confidence medium
 python -m skrapkin.cli verify --preview
 HUNTER_API_KEY=... python -m skrapkin.cli verify --yes
 python -m skrapkin.cli export verified -o verified.csv
 ```
+
+(`--area` still works as an older spelling of `--place`.)
 
 **Measuring accuracy.** There is no way to tell automatically whether a lead is "legitimate", so use `audit`:
 sample 50 leads, mark each `y` or `n` by hand (right business? working contact? would they buy in bulk?), then
@@ -285,7 +339,7 @@ Every email goes through free local checks first. Only emails that pass are sent
 | **Junk filter** | Drops invalid formats, placeholders (`name@example.com`), system addresses (`noreply@`), error-tracking addresses, disposable providers, and random-looking names. |
 | **Domain check** | Drops addresses on domains that cannot receive mail (a DNS lookup). |
 | **Likelihood score** | Scores the rest from 0 to 100 and sends only those at or above your threshold (default **60**). |
-| **Webmail rule** | Gmail, Yahoo, Outlook and similar are never sent: a mailbox check cannot confirm them. |
+| **Webmail rule** | Gmail, Yahoo, Outlook, GMX, Mail.ru, QQ and similar are never sent: a mailbox check cannot confirm them. |
 | **Result cache** | Reuses a stored Hunter result for 30 days, so repeat runs cost nothing. `unknown` results are re-checked. |
 | **Accept-all rule** | If one address on a domain turns out to accept everything, the other addresses on it are not looked up separately. |
 | **Run cap** | Never uses more than your per-run limit (default **100**), and never more than your remaining Hunter balance (read with the free account call). |
@@ -299,7 +353,7 @@ Every email goes through free local checks first. Only emails that pass are sent
 | On the business's own domain | +30 |
 | Published by the business in OpenStreetMap | +25 |
 | On a different company's domain | −15 |
-| Shared mailbox (`info@`, `sales@`, `orders@`...) | +10 |
+| Shared mailbox (`info@`, `sales@`, `kontakt@`, `ventas@`, `vendas@`...) | +10 |
 | Looks like a person's name (`john.smith@`) | +5 |
 | Domain accepts email | +10 |
 | Domain check inconclusive | −10 |
@@ -315,9 +369,9 @@ MongoDB, database `skrapkin` by default.
 
 | Collection | Contents |
 |---|---|
-| `leads` | One document per business: `business`, `website`, `category`, `state`, `city`, `phones`, `confidence`, `source_pages`, timestamps, and an `emails` list of `{address, source, status, likelihood, note}`. |
+| `leads` | One document per business: `business`, `website`, `category`, `country` (ISO code), `region`, `city`, `phones`, `confidence`, `source_pages`, timestamps, and an `emails` list of `{address, source, status, likelihood, note}`. |
 | `email_checks` | Every Hunter result, keyed by address, so nothing is paid for twice. |
-| `verified_emails` | **Only addresses Hunter reported as `valid`**, with the business, location, phones, score, and verification time. This is the list to use for outreach. |
+| `verified_emails` | **Only addresses Hunter reported as `valid`**, with the business, country, region, phones, score, and verification time. This is the list to use for outreach. |
 
 **Email statuses** on a lead:
 
@@ -344,31 +398,44 @@ over stored values and are never copied into the keychain or config file.
 | MongoDB address | `SKRAPKIN_MONGO_URI` | `mongodb://localhost:27017` |
 | Hunter API key | `HUNTER_API_KEY` | none |
 | Config folder | `SKRAPKIN_HOME` | `~/.skrapkin` |
+| CSV output folder | `SKRAPKIN_OUTPUT_DIR` | `~/Documents/SKrapkin` |
+| Web interface address | `SKRAPKIN_WEB_HOST`, `SKRAPKIN_WEB_PORT` | `127.0.0.1`, `8080` |
+| Web interface password | `SKRAPKIN_WEB_PASSWORD`, `SKRAPKIN_WEB_USER` | none, `skrapkin` |
+| Extra allowed hostnames | `SKRAPKIN_ALLOWED_HOSTS` (comma-separated) | none |
 | Minimum likelihood score | (Verify tab / `--min-likelihood`) | `60` |
 | Max Hunter lookups per run | (Verify tab / `--max-lookups`) | `100` |
 | Reuse Hunter results for | config file `recheck_days` | `30` days |
-| CSV output folder | (Find Leads tab) | `~/Documents/SKrapkin` |
 
-Docker Compose reads `MONGO_USER`, `MONGO_PASSWORD`, `MONGO_PORT`, and `HUNTER_API_KEY` from `.env`.
-Never commit `.env`; it is git-ignored.
+Docker Compose reads `MONGO_USER`, `MONGO_PASSWORD`, `MONGO_PORT`, `WEB_PORT`, `HUNTER_API_KEY`,
+`SKRAPKIN_WEB_PASSWORD`, and `SKRAPKIN_ALLOWED_HOSTS` from `.env`. Never commit `.env`; it is git-ignored.
 
 ---
 
 ## Limitations
 
-- **US states only** in the app. The command line accepts any OpenStreetMap area name.
-- **Coverage depends on OpenStreetMap.** Many businesses are missing, and few list an email, so most contacts
-  come from scraping websites.
+- **Coverage depends on OpenStreetMap, and it varies a lot by country.** It is strong in much of Europe and North
+  America and thinner in many other regions. A search in a thinly mapped area can return only a handful of
+  businesses (a test search for building businesses in Lagos, Nigeria found one with contact details). Few listings
+  include an email, so most contacts come from scraping websites.
+- **Searching a whole country returns a sample.** The server returns matches in no particular order and the app
+  caps how many it asks for. Pick a region or city for a fuller picture.
+- **Regions are first-level ISO 3166-2 divisions.** They are listed by their ISO names (for example
+  *Mahārāshtra*). Region matching accepts plain spellings, but a country with no ISO regions only offers whole-country
+  and city searches.
 - **Some sites will be skipped.** Sites that disallow crawling in `robots.txt`, or that fail to load, produce
   no website contacts. The app falls back to whatever OpenStreetMap lists.
 - **No JavaScript rendering.** Contacts that only appear after a script runs are not found.
+- **Contact-page detection covers about 15 languages** (English, German, Spanish, Portuguese, Italian, French, Dutch,
+  Polish, Russian, Turkish, Chinese, Japanese, Korean, Arabic and a few more). Sites in other languages may yield
+  fewer contacts.
 - **Three categories** are built in (building, clothing, toys). More means adding OSM tag filters in
   `skrapkin/discover.py`.
 - **Buyer fit is a guess.** Category tags are the only signal. A one-person handyman and a large supplier look
   alike. Staff emails (`firstname@`) can be less useful than shared mailboxes.
 - **Verification is not a guarantee.** A `valid` result is Hunter's assessment at that moment. Mailboxes change,
   and `accept_all` domains cannot be confirmed at all.
-- **Docker GUI is Linux/X11 only and experimental.** On Windows and macOS run the app with Python.
+- **Public OpenStreetMap servers are shared and sometimes busy.** The app retries and falls back to a second server,
+  and tells you plainly if both are unavailable.
 
 ---
 
@@ -376,19 +443,24 @@ Never commit `.env`; it is git-ignored.
 
 ```
 skrapkin/
-  discover.py    OpenStreetMap discovery by state and category
+  discover.py    OpenStreetMap discovery by country, region and place
+  regions.py     countries, ISO 3166-2 regions, safe handling of place names
+  data/regions.json   generated country and region data (scripts/build_regions.py)
   fetcher.py     polite HTTP: robots.txt, per-domain rate limit
-  extract.py     emails, phones, names, contact-page links
-  validate.py    junk filters, DNS check, phone validation, chain detection
+  extract.py     emails, phones (any country), names, contact-page links
+  validate.py    junk filters, DNS check, phone validation, chain detection, public-suffix domains
   prefilter.py   local likelihood score (decides what is worth a paid lookup)
   hunter.py      Hunter.io client (Email Verifier + Account)
   verifier.py    verification plan and run
   db.py          MongoDB storage
   config.py      settings and secret storage
-  jobs.py        orchestration used by the GUI
+  csvsafe.py     spreadsheet formula-injection protection for CSV output
+  jobs.py        orchestration shared by the interfaces
   cli.py         command line
-  gui.py, gui_widgets.py   desktop app
+  web/           web interface (Flask API + static page)
+  gui.py, gui_widgets.py   desktop window
 tests/           pytest suite
+scripts/         build_regions.py (refreshes the region data; needs pycountry)
 assets/          banner
 Dockerfile, docker-compose.yml, .env.example
 ```
@@ -411,15 +483,19 @@ SKRAPKIN_TEST_MONGO_URI=mongodb://127.0.0.1:27018 pytest -q
 docker stop skrapkin-test-mongo
 ```
 
-Tests never call the live Hunter API; they use a fake client that returns Hunter's documented responses.
+Tests never call the live Hunter API or the live internet; they use fakes that return the documented responses.
+The suite covers the logic, the web API and its security checks, and the CLI. The browser page itself is plain
+HTML, CSS and JavaScript with no build step; it has no automated browser tests in this repository.
+
+To refresh the country and region data: `pip install pycountry && python scripts/build_regions.py`.
 
 ---
 
 ## Contributing
 
 Issues and pull requests are welcome. Please keep the safeguards intact (`robots.txt`, rate limiting, no personal
-data collection), add tests for behaviour changes, and run `pytest -q` before opening a PR. By contributing you
-agree your work is released under the MIT License.
+data collection, the web interface's host check and content security policy), add tests for behaviour changes, and
+run `pytest -q` before opening a PR. By contributing you agree your work is released under the MIT License.
 
 ---
 
@@ -430,5 +506,7 @@ commercial purposes, provided the licence and copyright notice are included. The
 warranty, as described in the [disclaimer](#disclaimer-and-responsible-use) and the licence text.
 
 Business discovery uses data © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors, available
-under the Open Database Licence. Email verification uses the [Hunter.io](https://hunter.io) API. The banner
-wordmark is set in [Montserrat](https://github.com/JulietaUla/Montserrat) (SIL Open Font License).
+under the Open Database Licence. Email verification uses the [Hunter.io](https://hunter.io) API. Country and region
+names come from [ISO 3166](https://www.iso.org/iso-3166-country-codes.html) via
+[pycountry](https://github.com/pycountry/pycountry). The banner wordmark is set in
+[Montserrat](https://github.com/JulietaUla/Montserrat) (SIL Open Font License).

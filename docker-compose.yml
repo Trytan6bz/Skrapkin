@@ -1,8 +1,8 @@
-# SKrapkin: MongoDB for the database, plus optional containers for the CLI and the desktop window.
+# SKrapkin: the web interface and MongoDB.
 #
 #   cp .env.example .env            # then set MONGO_PASSWORD
-#   docker compose up -d            # starts MongoDB only (bound to localhost)
-#   docker compose run --rm skrapkin discover --area Ohio --country US --category toys --limit 50 -o seeds.csv
+#   docker compose up -d --build    # starts MongoDB and the web interface
+#   open http://localhost:8080
 #
 # See the README for the full walkthrough.
 name: skrapkin
@@ -25,7 +25,34 @@ services:
       retries: 6
       start_period: 15s
 
-  # Headless command line. Reads and writes files in ./data.
+  # The browser interface. Search CSVs are kept in a Docker volume and downloaded from the page.
+  web:
+    build:
+      context: .
+      target: web
+    restart: unless-stopped
+    environment:
+      SKRAPKIN_MONGO_URI: mongodb://${MONGO_USER:-skrapkin}:${MONGO_PASSWORD}@mongo:27017/?authSource=admin
+      HUNTER_API_KEY: ${HUNTER_API_KEY:-}
+      SKRAPKIN_WEB_PASSWORD: ${SKRAPKIN_WEB_PASSWORD:-}
+      SKRAPKIN_ALLOWED_HOSTS: ${SKRAPKIN_ALLOWED_HOSTS:-}
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8080}:8080"       # localhost only. See the README before changing this.
+    volumes:
+      - skrapkin-data:/data                      # search CSVs (download them from the page)
+      - skrapkin-config:/config                  # settings and a Hunter key saved from the browser
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 10s
+
+  # Headless command line (optional). Reads and writes files in ./data, which you must create first:
+  #   mkdir -p data
   skrapkin:
     profiles: ["cli"]
     build:
@@ -40,22 +67,7 @@ services:
       mongo:
         condition: service_healthy
 
-  # Desktop window through X11 (Linux). On Windows/macOS run the app with Python instead (see README).
-  gui:
-    profiles: ["gui"]
-    build:
-      context: .
-      target: gui
-    environment:
-      DISPLAY: ${DISPLAY:-:0}
-      SKRAPKIN_MONGO_URI: mongodb://${MONGO_USER:-skrapkin}:${MONGO_PASSWORD}@mongo:27017/?authSource=admin
-      HUNTER_API_KEY: ${HUNTER_API_KEY:-}
-    volumes:
-      - /tmp/.X11-unix:/tmp/.X11-unix
-      - ./data:/data
-    depends_on:
-      mongo:
-        condition: service_healthy
-
 volumes:
   mongo-data:
+  skrapkin-data:
+  skrapkin-config:
